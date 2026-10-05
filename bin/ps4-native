@@ -166,6 +166,12 @@ if [[ -f "$HERE/out/hardware_profile.env" ]]; then
     fi
 fi
 
+# create accessible saves shortcut in game directory
+mkdir -p "$HERE/saves" "$USER_DIR/savedata/1"
+if [[ ! -e "$HERE/saves/{target_path.name}" ]]; then
+    ln -sfn "../user/savedata/1" "$HERE/saves/{target_path.name}" 2>/dev/null || true
+fi
+
 # parse optional launcher flags
 EXTRA_ARGS=()
 while [[ $# -gt 0 ]]; do
