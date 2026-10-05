@@ -10,7 +10,8 @@ build/
 # game data and extractions
 user/
 extracted/
-pkg/
+pkg
+pkgs
 saves/
 pgo/
 *.gcda

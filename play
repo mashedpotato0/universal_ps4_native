@@ -55,7 +55,7 @@ def discover_available_games() -> list:
         if not cand.exists():
             continue
 
-        # check if candidate is extracted game directory
+        # check if candidate is or contains extracted game directory
         if (cand / "eboot.bin").exists():
             sfo = read_sfo(cand)
             title_id = sfo.get("TITLE_ID", cand.name)
@@ -71,6 +71,26 @@ def discover_available_games() -> list:
                     "status": "ready to run",
                 }
             continue
+        elif cand.is_dir():
+            found_sub = False
+            for sub in sorted(cand.iterdir()):
+                if sub.is_dir() and (sub / "eboot.bin").exists():
+                    sfo = read_sfo(sub)
+                    title_id = sfo.get("TITLE_ID", sub.name)
+                    title = sfo.get("TITLE", title_id)
+                    slug = slugify_title(title, title_id)
+                    if title_id not in discovered or discovered[title_id]["type"] != "extracted":
+                        discovered[title_id] = {
+                            "title": title,
+                            "title_id": title_id,
+                            "slug": slug,
+                            "type": "extracted",
+                            "path": sub,
+                            "status": "ready to run",
+                        }
+                    found_sub = True
+            if found_sub:
+                continue
 
         # scan for pkgs in candidate directory
         pkgs = pkg.scan_pkgs(cand)

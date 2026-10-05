@@ -104,8 +104,8 @@ def scan_pkgs(target_paths) -> list:
                 seen.add(path.resolve())
                 discovered.append(get_pkg_info(path))
         elif path.is_dir():
-            # scan folder for pkg files only
-            for item in sorted(path.iterdir()):
+            # scan folder recursively for pkg files
+            for item in sorted(path.rglob("*")):
                 if is_pkg_file(item) and item.resolve() not in seen:
                     seen.add(item.resolve())
                     discovered.append(get_pkg_info(item))
