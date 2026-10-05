@@ -66,6 +66,9 @@ static int live_resolution_suits(VkPhysicalDevice device) {
 
 int main(int argc, char **argv) {
     const int live_mode = argc > 1 && !strcmp(argv[1], "--live-resolution");
+    const int list_mode = argc > 1 && !strcmp(argv[1], "--list");
+    const int find_discrete = argc > 1 && !strcmp(argv[1], "--find-discrete");
+    const int find_integrated = argc > 1 && !strcmp(argv[1], "--find-integrated");
     const VkApplicationInfo app = {
         .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
         .pApplicationName = "bbport scene scaling probe",
@@ -92,6 +95,49 @@ int main(int argc, char **argv) {
         free(devices);
         vkDestroyInstance(instance, NULL);
         return 1;
+    }
+    if (list_mode) {
+        for (uint32_t i = 0; i < count; ++i) {
+            VkPhysicalDeviceProperties p;
+            vkGetPhysicalDeviceProperties(devices[i], &p);
+            const char *t = p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? "discrete" :
+                            p.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? "integrated" :
+                            p.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU ? "cpu" : "other";
+            printf("[%u] %s (%s, %llu MiB)\n", i, p.deviceName, t,
+                   (unsigned long long)(largest_local_heap(devices[i]) >> 20));
+        }
+        free(devices);
+        vkDestroyInstance(instance, NULL);
+        return 0;
+    }
+    if (find_discrete) {
+        int best = -1;
+        for (uint32_t i = 0; i < count; ++i) {
+            VkPhysicalDeviceProperties p;
+            vkGetPhysicalDeviceProperties(devices[i], &p);
+            if (p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+                if (best < 0 || better_device(devices[i], devices[best])) best = (int)i;
+            }
+        }
+        printf("%d\n", best >= 0 ? best : 0);
+        free(devices);
+        vkDestroyInstance(instance, NULL);
+        return 0;
+    }
+    if (find_integrated) {
+        int best = -1;
+        for (uint32_t i = 0; i < count; ++i) {
+            VkPhysicalDeviceProperties p;
+            vkGetPhysicalDeviceProperties(devices[i], &p);
+            if (p.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
+                best = (int)i;
+                break;
+            }
+        }
+        printf("%d\n", best >= 0 ? best : 0);
+        free(devices);
+        vkDestroyInstance(instance, NULL);
+        return 0;
     }
     /* Match vk_instance.cpp's default ranking or its explicit BB_GPU_ID index. */
     VkPhysicalDevice selected = devices[0];

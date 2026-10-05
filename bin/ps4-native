@@ -156,15 +156,56 @@ export SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1
 
 # parse optional launcher flags
 EXTRA_ARGS=()
-for arg in "$@"; do
-    case "$arg" in
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --no-cap-fps|--uncap-fps)
             export BB_NO_CAP_FPS=1
             export BB_FPS_LIMIT=0
             export BB_VBLANK_HZ=0
+            shift
+            ;;
+        --fps)
+            shift
+            export BB_FPS_LIMIT="${{1:-60}}"
+            if [[ "$BB_FPS_LIMIT" == "uncap" ]]; then
+                export BB_NO_CAP_FPS=1
+                export BB_FPS_LIMIT=0
+                export BB_VBLANK_HZ=0
+            else
+                export BB_NO_CAP_FPS=0
+            fi
+            shift
+            ;;
+        --discrete)
+            if [[ -x "$HERE/out/ps4-gpu-capabilities" ]]; then
+                export BB_GPU_ID="$("$HERE/out/ps4-gpu-capabilities" --find-discrete)"
+            fi
+            shift
+            ;;
+        --integrated)
+            if [[ -x "$HERE/out/ps4-gpu-capabilities" ]]; then
+                export BB_GPU_ID="$("$HERE/out/ps4-gpu-capabilities" --find-integrated)"
+            fi
+            shift
+            ;;
+        --gpu)
+            shift
+            export BB_GPU_ID="${{1:-0}}"
+            shift
+            ;;
+        --gpu=*)
+            export BB_GPU_ID="${{1#*=}}"
+            shift
+            ;;
+        --list-gpus)
+            if [[ -x "$HERE/out/ps4-gpu-capabilities" ]]; then
+                "$HERE/out/ps4-gpu-capabilities" --list
+            fi
+            exit 0
             ;;
         *)
-            EXTRA_ARGS+=("$arg")
+            EXTRA_ARGS+=("$1")
+            shift
             ;;
     esac
 done
@@ -336,6 +377,12 @@ def run_game(targets, args, unknown_args):
     else:
         create_launcher_script(game_dir, launcher_path, title=title)
 
+    if getattr(args, "list_gpus", False):
+        cap_bin = ROOT / "out/ps4-gpu-capabilities"
+        if cap_bin.exists():
+            subprocess.run([str(cap_bin), "--list"])
+        return 0
+
     if getattr(args, "no_launch", False):
         return 0
 
@@ -367,6 +414,20 @@ def run_game(targets, args, unknown_args):
         env["BB_FPS"] = fps_preset
         env["BB_FPS_LIMIT"] = fps_preset
         env["BB_NO_CAP_FPS"] = "0"
+
+    cap_bin = ROOT / "out/ps4-gpu-capabilities"
+    if getattr(args, "gpu", None) is not None:
+        env["BB_GPU_ID"] = str(args.gpu)
+    elif getattr(args, "integrated", False) and cap_bin.exists():
+        try:
+            env["BB_GPU_ID"] = subprocess.check_output([str(cap_bin), "--find-integrated"]).decode().strip()
+        except Exception:
+            pass
+    elif getattr(args, "discrete", False) and cap_bin.exists():
+        try:
+            env["BB_GPU_ID"] = subprocess.check_output([str(cap_bin), "--find-discrete"]).decode().strip()
+        except Exception:
+            pass
 
     if args.permissive:
         env["PS4_PERMISSIVE"] = "1"
@@ -414,6 +475,10 @@ def main():
     p_run.add_argument("--user-dir", type=Path, default=None, help="user saves directory")
     p_run.add_argument("--rebuild", action="store_true", help="force recompile before running")
     p_run.add_argument("--no-launch", action="store_true", help="build executable without launching")
+    p_run.add_argument("--gpu", type=str, default=None, help="select gpu device index or id")
+    p_run.add_argument("--discrete", action="store_true", help="select discrete gpu")
+    p_run.add_argument("--integrated", action="store_true", help="select integrated gpu")
+    p_run.add_argument("--list-gpus", action="store_true", help="list available vulkan gpus")
 
     args, unknown = parser.parse_known_args()
 
