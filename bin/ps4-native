@@ -159,6 +159,8 @@ export BB_FPS_LIMIT="${{BB_FPS_LIMIT:-0}}"
 export BB_VBLANK_HZ="${{BB_VBLANK_HZ:-0}}"
 export BB_FPS="${{BB_FPS:-uncap}}"
 export BB_DMEM_MB="${{BB_DMEM_MB:-9152}}"
+export BB_FRAMES_AHEAD="${{BB_FRAMES_AHEAD:-2}}"
+export BB_PRESENT_MODE="${{BB_PRESENT_MODE:-Mailbox}}"
 
 # load hardware profile or run detection
 if [[ ! -f "$HERE/out/hardware_profile.env" && -f "$HERE/scripts/detect_hardware.py" ]]; then
@@ -247,6 +249,13 @@ done
 CONTENT="$HERE/out/content.bin"
 if [[ ! -f "$CONTENT" && -f "$HERE/scripts/content_profile.py" ]]; then
     python3 "$HERE/scripts/content_profile.py" "$APP0" --out "$HERE/out" --sku full >/dev/null 2>&1 || true
+fi
+
+# compile active patches from bbport.ini
+if [[ -f "$HERE/scripts/patches.py" && -d "$HERE/patches" ]]; then
+    python3 "$HERE/scripts/patches.py" --out "$HERE/out" --fps "${{BB_FPS:-uncap}}" \
+        --settings "$BB_CONFIG" --game-dir "$APP0" --patches-dir "$HERE/patches" \
+        ${{BB_RENDER_RES:+--render-res "$BB_RENDER_RES"}} ${{BB_OUTPUT_RES:+--output-res "$BB_OUTPUT_RES"}} >/dev/null 2>&1 || true
 fi
 
 RUNTIME_ARGS=("$RUNTIME" "$BOOT" --app0 "$APP0" --user "$USER_DIR" --timeout "${{TIMEOUT:-0}}")
@@ -515,9 +524,33 @@ def run_game(targets, args, unknown_args):
         except Exception:
             pass
 
+    env.setdefault("BB_FRAMES_AHEAD", "2")
+    env.setdefault("BB_PRESENT_MODE", "Mailbox")
+
     if args.permissive:
         env["PS4_PERMISSIVE"] = "1"
     env["SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS"] = "1"
+
+    # compile active patches from bbport.ini if patches directory exists
+    patches_dir = ROOT / "patches"
+    if patches_dir.exists() and (SCRIPTS / "patches.py").exists():
+        patch_cmd = [
+            sys.executable, str(SCRIPTS / "patches.py"),
+            "--out", str(ROOT / "out"),
+            "--fps", str(env.get("BB_FPS", "uncap")),
+            "--game-dir", str(game_dir),
+            "--patches-dir", str(patches_dir),
+        ]
+        if config_file.exists():
+            patch_cmd.extend(["--settings", str(config_file)])
+        if env.get("BB_RENDER_RES"):
+            patch_cmd.extend(["--render-res", env["BB_RENDER_RES"]])
+        if env.get("BB_OUTPUT_RES"):
+            patch_cmd.extend(["--output-res", env["BB_OUTPUT_RES"]])
+        try:
+            subprocess.run(patch_cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
     print(f"launching native ps4 app: {' '.join(cmd)}")
     return run_cmd(cmd, env=env, check=False).returncode

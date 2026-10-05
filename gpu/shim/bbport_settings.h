@@ -29,12 +29,12 @@ struct Effect {
     bool default_on;
 };
 inline constexpr Effect Effects[] = {
-    {"effect_chromatic_aberration", "Chromatic aberration", true},
-    {"effect_dof", "Depth of field (DoF)", true},
-    {"effect_motion_blur", "Motion blur", true},
-    {"effect_ssao", "SSAO", true},
+    {"effect_chromatic_aberration", "Chromatic aberration", false},
+    {"effect_dof", "Depth of field (DoF)", false},
+    {"effect_motion_blur", "Motion blur", false},
+    {"effect_ssao", "SSAO", false},
     {"effect_game_aa", "In-game anti-aliasing", true},
-    {"effect_dynamic_shadows", "Dynamic light shadows", true},
+    {"effect_dynamic_shadows", "Dynamic light shadows", false},
     {"effect_ssr", "SSR reflections (not in base game)", false},
     {"skip_intro", "Skip intro videos", false},
     {"debug_camera", "Free camera (Cross + L3)", false},
@@ -84,9 +84,9 @@ void ResetDefaultBindings();
 
 struct Values {
     std::atomic<int> upscaler{UpscalerFsr3};
-    std::atomic<int> preset{NativeAA};
+    std::atomic<int> preset{Quality};
     std::atomic<bool> sharpen{true};
-    std::atomic<float> sharpness{0.3f};
+    std::atomic<float> sharpness{0.4f};
     std::atomic<bool> jitter{true};
     std::atomic<bool> reactive{false};
     std::atomic<bool> object_motion{true};
