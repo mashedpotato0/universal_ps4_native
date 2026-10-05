@@ -51,6 +51,10 @@ void SetOpen(bool value) {
         return;
     }
     ImGui::GetIO().MouseDrawCursor = value;
+    SDL_Window* win = SDL_GetKeyboardFocus();
+    if (win) {
+        SDL_SetWindowRelativeMouseMode(win, !value);
+    }
     if (!value && dirty) {
         dirty = false;
         BbSettings::Save();

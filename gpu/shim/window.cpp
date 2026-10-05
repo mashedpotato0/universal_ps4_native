@@ -109,6 +109,16 @@ bool WindowSDL::PollEvents() {
             continue;
         }
         switch (event.type) {
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            if (!BbOverlay::CapturesInput()) {
+                SDL_SetWindowRelativeMouseMode(window, true);
+            }
+            break;
+        case SDL_EVENT_KEY_DOWN:
+            if (event.key.key == SDLK_ESCAPE) {
+                SDL_SetWindowRelativeMouseMode(window, false);
+            }
+            break;
         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
         case SDL_EVENT_WINDOW_RESIZED: {
             int w = 0, h = 0;

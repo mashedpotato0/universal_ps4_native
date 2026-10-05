@@ -137,23 +137,91 @@ static void sample_host(PadData *d) {
         if (k && k[SDL_SCANCODE_BACKSPACE]) touch_click(d,1);
         return;
     }
+
+    // sample relative mouse movement and clicks
+    float m_dx = 0.0f, m_dy = 0.0f;
+    SDL_MouseButtonFlags mb = 0;
+    if (SDL_WasInit(SDL_INIT_VIDEO)) {
+        mb = SDL_GetRelativeMouseState(&m_dx, &m_dy);
+    }
+
+    // mouse camera aiming
+    if (m_dx != 0.0f || m_dy != 0.0f) {
+        float sens = 3.5f;
+        int rx = 128 + (int)(m_dx * sens);
+        int ry = 128 + (int)(m_dy * sens);
+        d->right_x = (uint8_t)(rx < 0 ? 0 : rx > 255 ? 255 : rx);
+        d->right_y = (uint8_t)(ry < 0 ? 0 : ry > 255 ? 255 : ry);
+    }
+
+    // mouse clicks
+    if (mb & SDL_BUTTON_LMASK) {
+        d->buttons |= (BTN_R1 | BTN_CROSS);
+    }
+    if (mb & SDL_BUTTON_RMASK) {
+        d->buttons |= BTN_L2;
+        d->l2 = 255;
+    }
+    if (mb & SDL_BUTTON_MMASK) {
+        d->buttons |= BTN_R3;
+    }
+    if (mb & (1 << (SDL_BUTTON_X1 - 1))) {
+        d->buttons |= BTN_L1;
+    }
+    if (mb & (1 << (SDL_BUTTON_X2 - 1))) {
+        d->buttons |= BTN_R2;
+        d->r2 = 255;
+    }
+
     if (!k) return;
+
+    // keyboard buttons mapping
     static const struct { SDL_Scancode key; uint32_t ps; } keys[]={
-        {SDL_SCANCODE_SPACE,BTN_CROSS}, {SDL_SCANCODE_LSHIFT,BTN_CIRCLE}, {SDL_SCANCODE_E,BTN_SQUARE},
-        {SDL_SCANCODE_Q,BTN_TRIANGLE}, {SDL_SCANCODE_1,BTN_L1}, {SDL_SCANCODE_3,BTN_R1},
-        {SDL_SCANCODE_R,BTN_L2}, {SDL_SCANCODE_F,BTN_R2}, {SDL_SCANCODE_Z,BTN_L3}, {SDL_SCANCODE_C,BTN_R3},
-        {SDL_SCANCODE_RETURN,BTN_OPTIONS},
-        {SDL_SCANCODE_I,BTN_UP}, {SDL_SCANCODE_K,BTN_DOWN}, {SDL_SCANCODE_J,BTN_LEFT}, {SDL_SCANCODE_L,BTN_RIGHT},
+        {SDL_SCANCODE_SPACE,BTN_CIRCLE|BTN_CROSS},
+        {SDL_SCANCODE_RETURN,BTN_CROSS},
+        {SDL_SCANCODE_KP_ENTER,BTN_CROSS},
+        {SDL_SCANCODE_E,BTN_CROSS},
+        {SDL_SCANCODE_LSHIFT,BTN_CIRCLE},
+        {SDL_SCANCODE_RSHIFT,BTN_CIRCLE},
+        {SDL_SCANCODE_ESCAPE,BTN_CIRCLE|BTN_OPTIONS},
+        {SDL_SCANCODE_BACKSPACE,BTN_CIRCLE},
+        {SDL_SCANCODE_R,BTN_SQUARE},
+        {SDL_SCANCODE_F,BTN_TRIANGLE},
+        {SDL_SCANCODE_Q,BTN_L1},
+        {SDL_SCANCODE_TAB,BTN_OPTIONS},
+        {SDL_SCANCODE_P,BTN_OPTIONS},
+        {SDL_SCANCODE_C,BTN_R3},
+        {SDL_SCANCODE_Z,BTN_L3},
+        {SDL_SCANCODE_UP,BTN_UP},
+        {SDL_SCANCODE_DOWN,BTN_DOWN},
+        {SDL_SCANCODE_LEFT,BTN_LEFT},
+        {SDL_SCANCODE_RIGHT,BTN_RIGHT},
+        {SDL_SCANCODE_I,BTN_UP},
+        {SDL_SCANCODE_K,BTN_DOWN},
+        {SDL_SCANCODE_J,BTN_LEFT},
+        {SDL_SCANCODE_L,BTN_RIGHT},
+        {SDL_SCANCODE_1,BTN_LEFT},
+        {SDL_SCANCODE_2,BTN_RIGHT},
+        {SDL_SCANCODE_3,BTN_UP},
+        {SDL_SCANCODE_4,BTN_DOWN},
     };
     for (size_t i=0;i<sizeof(keys)/sizeof(*keys);++i) if (k[keys[i].key]) d->buttons|=keys[i].ps;
-    if (k[SDL_SCANCODE_TAB]) touch_click(d,0);
-    if (k[SDL_SCANCODE_BACKSPACE]) touch_click(d,1);
+    if (k[SDL_SCANCODE_T]) touch_click(d,0);
+    if (k[SDL_SCANCODE_Y]) touch_click(d,1);
     if (d->buttons & BTN_L2) d->l2=255;
     if (d->buttons & BTN_R2) d->r2=255;
+
+    // wasd left analog stick
     d->left_x=(uint8_t)(128-(k[SDL_SCANCODE_A] ? 128 : 0)+(k[SDL_SCANCODE_D] ? 127 : 0));
     d->left_y=(uint8_t)(128-(k[SDL_SCANCODE_W] ? 128 : 0)+(k[SDL_SCANCODE_S] ? 127 : 0));
-    d->right_x=(uint8_t)(128-(k[SDL_SCANCODE_LEFT] ? 128 : 0)+(k[SDL_SCANCODE_RIGHT] ? 127 : 0));
-    d->right_y=(uint8_t)(128-(k[SDL_SCANCODE_UP] ? 128 : 0)+(k[SDL_SCANCODE_DOWN] ? 127 : 0));
+
+    // arrow keys camera fallback if mouse not moved
+    if (m_dx == 0.0f && m_dy == 0.0f) {
+        if (k[SDL_SCANCODE_LEFT] && !k[SDL_SCANCODE_RIGHT]) d->right_x = 0;
+        else if (k[SDL_SCANCODE_RIGHT] && !k[SDL_SCANCODE_LEFT]) d->right_x = 255;
+        if (k[SDL_SCANCODE_UP] && !k[SDL_SCANCODE_DOWN]) d->right_y = 0;
+        else if (k[SDL_SCANCODE_DOWN] && !k[SDL_SCANCODE_UP]) d->right_y = 255;
+    }
 }
 
 /* BB_PAD_FILE=<file>: scripted input for automated runs. The file holds whitespace-separated
