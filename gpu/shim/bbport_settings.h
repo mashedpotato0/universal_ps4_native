@@ -30,9 +30,9 @@ struct Effect {
 };
 inline constexpr Effect Effects[] = {
     {"effect_chromatic_aberration", "Chromatic aberration", false},
-    {"effect_dof", "Depth of field (DoF)", false},
+    {"effect_dof", "Depth of field (DoF)", true},
     {"effect_motion_blur", "Motion blur", false},
-    {"effect_ssao", "SSAO", false},
+    {"effect_ssao", "SSAO", true},
     {"effect_game_aa", "In-game anti-aliasing", true},
     {"effect_dynamic_shadows", "Dynamic light shadows", false},
     {"effect_ssr", "SSR reflections (not in base game)", false},

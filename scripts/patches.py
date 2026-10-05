@@ -266,6 +266,12 @@ def main():
         if size: print(f'{size[0]}x{size[1]}')
         return
     names=FPS_PRESETS[a.fps]+[n.strip() for n in a.extra.split(';') if n.strip()]
+    try:
+        available = {m.get('Name') for m in ET.parse(a.xml).getroot().iter('Metadata') if m.get('AppVer') == a.app_version}
+        if 'FMOD Crash Fix' in available and 'FMOD Crash Fix' not in names:
+            names.append('FMOD Crash Fix')
+    except Exception:
+        pass
     names+=[n for n in effect_patches(read_settings(a.settings)) if n not in names]
     validate_patch_requirements(names,a.game_dir)
     segments=eboot_segments((a.out/'eboot.elf').read_bytes())

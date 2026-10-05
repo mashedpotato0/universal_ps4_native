@@ -158,8 +158,8 @@ export BB_NO_CAP_FPS="${{BB_NO_CAP_FPS:-1}}"
 export BB_FPS_LIMIT="${{BB_FPS_LIMIT:-0}}"
 export BB_VBLANK_HZ="${{BB_VBLANK_HZ:-0}}"
 export BB_FPS="${{BB_FPS:-uncap}}"
-export BB_DMEM_MB="${{BB_DMEM_MB:-9152}}"
-export BB_FRAMES_AHEAD="${{BB_FRAMES_AHEAD:-2}}"
+export BB_DMEM_MB="${{BB_DMEM_MB:-5056}}"
+export BB_FRAMES_AHEAD="${{BB_FRAMES_AHEAD:-1}}"
 export BB_PRESENT_MODE="${{BB_PRESENT_MODE:-Mailbox}}"
 
 # load hardware profile or run detection
@@ -498,7 +498,7 @@ def run_game(targets, args, unknown_args):
         except Exception:
             pass
 
-    env["BB_DMEM_MB"] = "9152"
+    env["BB_DMEM_MB"] = os.getenv("BB_DMEM_MB", "5056")
     if args.no_cap_fps or fps_preset == "uncap":
         env["BB_NO_CAP_FPS"] = "1"
         env["BB_FPS_LIMIT"] = "0"
@@ -524,7 +524,7 @@ def run_game(targets, args, unknown_args):
         except Exception:
             pass
 
-    env.setdefault("BB_FRAMES_AHEAD", "2")
+    env.setdefault("BB_FRAMES_AHEAD", "1")
     env.setdefault("BB_PRESENT_MODE", "Mailbox")
 
     if args.permissive:
