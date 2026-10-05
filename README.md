@@ -68,14 +68,31 @@ Compile the native runtime and GPU translation layers:
 
 ## Step-by-Step User Guide
 
-### Quick Start: Run a Game Directly
-You can run any PS4 `.pkg` file or folder containing multiple `.pkg` files (base game + update patches) in a single step. The CLI automatically discovers packages, orders dependencies (Base -> DLC -> Patches), extracts them, links modules, and launches natively:
+### Quick Start: Automated One-Click Play
+You don't need to fiddle with complex command line options to play. Simply run the automated launcher:
 ```bash
-# run from a single pkg file
-./bin/ps4-native run /path/to/game.pkg
+# auto-detects packages or extracted games and launches directly
+./play
 
-# or run directly from a folder with base game and update patches
-./bin/ps4-native run /path/to/pkg_folder/
+# or using run.sh
+./run.sh
+```
+If you pass a `.pkg` or folder directly:
+```bash
+./play /path/to/game.pkg
+```
+
+### Direct Game Executables (e.g. `./bloodborne`)
+When you compile or run a title, a standalone native launcher named after the game is automatically generated in the project root:
+```bash
+# run bloodborne directly with zero command line friction
+./bloodborne
+```
+
+### Install Application Menu Shortcut (Steam Deck / GNOME / KDE)
+Generate a native desktop shortcut with the official PlayStation 4 game icon in `~/.local/share/applications`:
+```bash
+./bin/ps4-native desktop ./extracted/CUSA03173
 ```
 
 ---

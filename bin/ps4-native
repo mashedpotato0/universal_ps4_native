@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -33,6 +34,13 @@ def read_sfo(game_dir: Path):
         return prepare.sfo(sfo_path.read_bytes())
     except Exception:
         return {}
+
+
+def slugify_title(title: str, title_id: str = "") -> str:
+    # convert game title to executable slug
+    clean = re.sub(r"[^\w\s-]", "", title.lower())
+    clean = re.sub(r"[-\s]+", "_", clean).strip("_")
+    return clean or (title_id.lower() if title_id else "ps4_game")
 
 
 def extract_targets(targets, out_dir: Path = None):
@@ -124,6 +132,68 @@ def inspect_game(target: Path):
         print(f"  - {name}: {sym_count} symbols")
 
 
+def create_launcher_script(game_dir: Path, target_path: Path, title: str = ""):
+    # write standalone launcher executable
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    boot_bin = OUT / "boot-linked.bin"
+    launcher_code = f"""#!/usr/bin/env bash
+# native ps4 application launcher for {title or target_path.name}
+set -euo pipefail
+HERE="$(cd -- "$(dirname -- "$0")" && pwd)"
+RUNTIME="$HERE/out/ps4-runtime"
+BOOT="$HERE/out/boot-linked.bin"
+APP0="{game_dir.resolve()}"
+USER_DIR="$HERE/user"
+
+if [[ ! -x "$RUNTIME" ]]; then
+    echo "runtime missing; building..."
+    bash "$HERE/build.sh"
+fi
+
+mkdir -p "$USER_DIR"
+export SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1
+exec "$RUNTIME" "$BOOT" --app0 "$APP0" --user "$USER_DIR" "$@"
+"""
+    target_path.write_text(launcher_code)
+    target_path.chmod(0o755)
+    rel_path = f"./{target_path.relative_to(ROOT)}" if target_path.is_relative_to(ROOT) else str(target_path)
+    print(f"standalone executable created: {rel_path}")
+
+
+def create_desktop_entry(game_dir: Path, slug: str = None, title: str = None):
+    # generate xdg desktop application shortcut
+    sfo = read_sfo(game_dir)
+    game_title = title or sfo.get("TITLE", "PS4 Game")
+    title_id = sfo.get("TITLE_ID", "")
+    game_slug = slug or slugify_title(game_title, title_id)
+
+    launcher_bin = ROOT / game_slug
+    if not launcher_bin.exists():
+        create_launcher_script(game_dir, launcher_bin, title=game_title)
+
+    apps_dir = Path.home() / ".local/share/applications"
+    apps_dir.mkdir(parents=True, exist_ok=True)
+    icon_path = game_dir / "sce_sys/icon0.png"
+
+    lines = [
+        "[Desktop Entry]",
+        "Type=Application",
+        f"Name={game_title}",
+        f"Comment=Play {game_title} natively on Linux",
+        f"Exec={launcher_bin.resolve()}",
+        f"Path={ROOT.resolve()}",
+        "Terminal=false",
+        "Categories=Game;",
+    ]
+    if icon_path.exists():
+        lines.append(f"Icon={icon_path.resolve()}")
+
+    desktop_file = apps_dir / f"{game_slug}.desktop"
+    desktop_file.write_text("\n".join(lines) + "\n")
+    print(f"desktop launcher installed: {desktop_file}")
+    return desktop_file
+
+
 def compile_game(game_dir: Path, out_dir: Path = OUT, app_out: Path = None):
     # prepare eboot and link modules into native binary
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -147,24 +217,13 @@ def compile_game(game_dir: Path, out_dir: Path = OUT, app_out: Path = None):
     boot_bin = out_dir / "boot-linked.bin"
     print(f"native compilation successful: {boot_bin}")
 
-    # create standalone executable if requested
-    if app_out:
-        app_path = Path(app_out)
-        app_path.parent.mkdir(parents=True, exist_ok=True)
-        runtime_path = OUT / "ps4-runtime"
-        launcher_code = (
-            f"#!/usr/bin/env bash\n"
-            f"# native ps4 application\n"
-            f"set -euo pipefail\n"
-            f"RUNTIME=\"{runtime_path.resolve()}\"\n"
-            f"BOOT=\"{boot_bin.resolve()}\"\n"
-            f"APP0=\"{game_dir.resolve()}\"\n"
-            f"export SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1\n"
-            f"exec \"$RUNTIME\" \"$BOOT\" --app0 \"$APP0\" \"$@\"\n"
-        )
-        app_path.write_text(launcher_code)
-        app_path.chmod(0o755)
-        print(f"standalone executable created: {app_path}")
+    # automatically generate standalone title launcher
+    sfo = read_sfo(game_dir)
+    title = sfo.get("TITLE", "")
+    title_id = sfo.get("TITLE_ID", "")
+    slug = slugify_title(title, title_id)
+    launcher_path = Path(app_out) if app_out else (ROOT / slug)
+    create_launcher_script(game_dir, launcher_path, title=title)
 
     return boot_bin
 
@@ -250,6 +309,10 @@ def main():
     p_cmp.add_argument("--out", type=Path, default=OUT, help="output directory")
     p_cmp.add_argument("--app-out", type=Path, default=None, help="standalone executable launcher path")
 
+    # desktop
+    p_dsk = sub.add_parser("desktop", help="install a desktop shortcut with game icon to application menu")
+    p_dsk.add_argument("game_dir", type=Path, help="extracted game directory")
+
     # run
     p_run = sub.add_parser("run", help="run a ps4 game natively from folder, .pkg, or directory of pkgs")
     p_run.add_argument("target", type=Path, help="path to game directory, .pkg, or folder of pkgs")
@@ -267,6 +330,8 @@ def main():
         inspect_game(args.target)
     elif args.command == "compile":
         compile_game(args.game_dir, args.out, app_out=args.app_out)
+    elif args.command == "desktop":
+        create_desktop_entry(args.game_dir)
     elif args.command == "run":
         code = run_game(args.target, args, unknown)
         sys.exit(code)

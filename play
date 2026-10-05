@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+# universal automated ps4 game launcher
+import argparse
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+SCRIPTS = ROOT / "scripts"
+BIN = ROOT / "bin"
+OUT = ROOT / "out"
+
+sys.path.insert(0, str(SCRIPTS))
+import pkg
+import prepare
+
+
+def read_sfo(game_dir: Path) -> dict:
+    # read sfo metadata from directory
+    sfo_path = game_dir / "sce_sys/param.sfo"
+    if not sfo_path.exists():
+        return {}
+    try:
+        return prepare.sfo(sfo_path.read_bytes())
+    except Exception:
+        return {}
+
+
+def slugify_title(title: str, title_id: str = "") -> str:
+    # convert game title to clean slug
+    clean = re.sub(r"[^\w\s-]", "", title.lower())
+    clean = re.sub(r"[-\s]+", "_", clean).strip("_")
+    return clean or (title_id.lower() if title_id else "ps4_game")
+
+
+def discover_available_games() -> list:
+    # scan candidate directories for games or packages
+    candidates = [
+        ROOT / "extracted",
+        ROOT / "pkg",
+        ROOT / "pkgs",
+        ROOT.parent / "CUSA03173",
+        ROOT.parent / "bloodborne_pc/pkg",
+    ]
+    # check parent directory for other cusa directories
+    for sibling in ROOT.parent.glob("CUSA*"):
+        if sibling not in candidates:
+            candidates.append(sibling)
+
+    discovered = {}
+
+    for cand in candidates:
+        if not cand.exists():
+            continue
+
+        # check if candidate is extracted game directory
+        if (cand / "eboot.bin").exists():
+            sfo = read_sfo(cand)
+            title_id = sfo.get("TITLE_ID", cand.name)
+            title = sfo.get("TITLE", title_id)
+            slug = slugify_title(title, title_id)
+            if title_id not in discovered or discovered[title_id]["type"] != "extracted":
+                discovered[title_id] = {
+                    "title": title,
+                    "title_id": title_id,
+                    "slug": slug,
+                    "type": "extracted",
+                    "path": cand,
+                    "status": "ready to run",
+                }
+            continue
+
+        # scan for pkgs in candidate directory
+        pkgs = pkg.scan_pkgs(cand)
+        if pkgs:
+            for item in pkgs:
+                tid = item["title_id"]
+                if tid not in discovered:
+                    discovered[tid] = {
+                        "title": item["title"],
+                        "title_id": tid,
+                        "slug": slugify_title(item["title"], tid),
+                        "type": "pkg",
+                        "path": cand,
+                        "status": "requires extraction",
+                    }
+
+    return list(discovered.values())
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Universal One-Click PS4 Native Game Launcher"
+    )
+    parser.add_argument("target", nargs="?", default=None, help="path to game folder, .pkg, or pkg directory")
+    parser.add_argument("--cpu-only", action="store_true", help="run without vulkan gpu window")
+    parser.add_argument("--permissive", action="store_true", help="stub unhandled imports with 0")
+    parser.add_argument("--timeout", type=int, default=0, help="timeout in seconds")
+    parser.add_argument("--rebuild", action="store_true", help="force recompilation")
+
+    args, unknown = parser.parse_known_args()
+
+    cli_script = BIN / "ps4-native"
+
+    target_path = None
+    if args.target:
+        target_path = Path(args.target)
+    else:
+        games = discover_available_games()
+        if not games:
+            print("no ps4 games found automatically")
+            print("place a .pkg in ./pkg or extract a game to ./extracted, or run:")
+            print("  ./play /path/to/game_or_pkg")
+            sys.exit(1)
+        elif len(games) == 1:
+            selected = games[0]
+            print(f"auto-detected game: {selected['title']} ({selected['title_id']}) [{selected['status']}]")
+            target_path = selected["path"]
+        else:
+            print("\n--- available ps4 games ---")
+            for idx, g in enumerate(games, 1):
+                print(f"[{idx}] {g['title']} ({g['title_id']}) - {g['status']}")
+            try:
+                choice = input(f"\nselect game [1-{len(games)}] (default: 1): ").strip()
+                choice_idx = int(choice) - 1 if choice else 0
+                if 0 <= choice_idx < len(games):
+                    selected = games[choice_idx]
+                    target_path = selected["path"]
+                else:
+                    selected = games[0]
+                    target_path = selected["path"]
+            except (ValueError, EOFError, KeyboardInterrupt):
+                selected = games[0]
+                target_path = selected["path"]
+
+    # execute runner cli
+    cmd = [sys.executable, str(cli_script), "run", str(target_path)]
+    if args.cpu_only:
+        cmd.append("--cpu-only")
+    if args.permissive:
+        cmd.append("--permissive")
+    if args.timeout:
+        cmd.extend(["--timeout", str(args.timeout)])
+    if args.rebuild:
+        cmd.append("--rebuild")
+    cmd.extend(unknown)
+
+    sys.exit(subprocess.run(cmd).returncode)
+
+
+if __name__ == "__main__":
+    main()
