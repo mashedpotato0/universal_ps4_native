@@ -8,9 +8,24 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
-# frame pointers keep thread dumps walkable
-# native march and mtune targeting host cpu
-add_compile_options(-fno-omit-frame-pointer -march=native -mtune=native -O3)
+# dynamic arch selection based on hardware
+if (BB_ARCH)
+    if (BB_ARCH MATCHES "^-")
+        separate_arguments(BB_ARCH_LIST NATIVE_COMMAND "${BB_ARCH}")
+        add_compile_options(${BB_ARCH_LIST})
+    else()
+        add_compile_options(-march=${BB_ARCH})
+    endif()
+else()
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag("-march=native" COMPILER_SUPPORTS_MARCH_NATIVE)
+    if (COMPILER_SUPPORTS_MARCH_NATIVE)
+        add_compile_options(-march=native -mtune=native)
+    else()
+        add_compile_options(-march=x86-64-v3 -mtune=generic)
+    endif()
+endif()
+add_compile_options(-fno-omit-frame-pointer -O3 -ftree-vectorize)
 
 # bbport: link-time optimization (BB_LTO, default on) and profile-guided optimization
 # (BB_PGO: off, generate = instrumented build writing into BB_PGO_DIR, use = build with that
