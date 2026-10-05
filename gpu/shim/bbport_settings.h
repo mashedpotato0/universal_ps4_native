@@ -57,6 +57,8 @@ struct Values {
     std::atomic<float> reactive_max{0.9f};
     std::atomic<int> debug_view{DebugNone};
     std::atomic<bool> show_fps{false};
+    std::atomic<bool> uncap_fps{true};
+    std::atomic<int> fps_limit{0};
     // FSR 4 checks (menu): the provider's auto exposure, the jitter sign it is given.
     std::atomic<bool> fsr4_auto_exposure{true};
     std::atomic<bool> fsr4_invert_jitter{false};

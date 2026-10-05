@@ -142,6 +142,7 @@ set -euo pipefail
 HERE="$(cd -- "$(dirname -- "$0")" && pwd)"
 RUNTIME="$HERE/out/ps4-runtime"
 BOOT="$HERE/out/boot-linked.bin"
+PATCHES="$HERE/out/patches.bin"
 APP0="{game_dir.resolve()}"
 USER_DIR="$HERE/user"
 
@@ -152,7 +153,28 @@ fi
 
 mkdir -p "$USER_DIR"
 export SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1
-exec "$RUNTIME" "$BOOT" --app0 "$APP0" --user "$USER_DIR" --timeout "${{TIMEOUT:-0}}" "$@"
+
+# parse optional launcher flags
+EXTRA_ARGS=()
+for arg in "$@"; do
+    case "$arg" in
+        --no-cap-fps|--uncap-fps)
+            export BB_NO_CAP_FPS=1
+            export BB_FPS_LIMIT=0
+            export BB_VBLANK_HZ=0
+            ;;
+        *)
+            EXTRA_ARGS+=("$arg")
+            ;;
+    esac
+done
+
+RUNTIME_ARGS=("$RUNTIME" "$BOOT" --app0 "$APP0" --user "$USER_DIR" --timeout "${{TIMEOUT:-0}}")
+if [[ -f "$PATCHES" ]]; then
+    RUNTIME_ARGS+=(--patches "$PATCHES")
+fi
+
+exec "${{RUNTIME_ARGS[@]}}" "${{EXTRA_ARGS[@]}}"
 """
     target_path.write_text(launcher_code)
     target_path.chmod(0o755)
@@ -198,7 +220,7 @@ def create_desktop_entry(game_dir: Path, slug: str = None, title: str = None):
     return desktop_file
 
 
-def compile_game(game_dir: Path, out_dir: Path = OUT, app_out: Path = None):
+def compile_game(game_dir: Path, out_dir: Path = OUT, app_out: Path = None, fps: str = "uncap"):
     # prepare eboot and link modules into native binary
     out_dir.mkdir(parents=True, exist_ok=True)
     eboot = game_dir / "eboot.bin"
@@ -220,6 +242,21 @@ def compile_game(game_dir: Path, out_dir: Path = OUT, app_out: Path = None):
     link_modules.link(game_dir, out_dir, module_names=tuple(modules_to_link))
     boot_bin = out_dir / "boot-linked.bin"
     print(f"native compilation successful: {boot_bin}")
+
+    # generate game patches
+    patches_dir = ROOT / "patches"
+    if patches_dir.exists():
+        print(f"compiling game patches (fps preset: {fps})...")
+        try:
+            run_cmd([
+                sys.executable, str(SCRIPTS / "patches.py"),
+                "--out", str(out_dir),
+                "--fps", str(fps),
+                "--game-dir", str(game_dir),
+                "--patches-dir", str(patches_dir),
+            ])
+        except Exception as e:
+            print(f"warning: patch generation failed: {e}")
 
     # automatically generate standalone title launcher
     sfo = read_sfo(game_dir)
@@ -290,9 +327,12 @@ def run_game(targets, args, unknown_args):
     slug = slugify_title(title, title_id)
     launcher_path = ROOT / slug
 
+    fps_preset = "uncap" if args.no_cap_fps else getattr(args, "fps", "uncap")
+
     boot_bin = OUT / "boot-linked.bin"
-    if not boot_bin.exists() or args.rebuild:
-        compile_game(game_dir, OUT, app_out=launcher_path)
+    patches_bin = OUT / "patches.bin"
+    if not boot_bin.exists() or not patches_bin.exists() or args.rebuild:
+        compile_game(game_dir, OUT, app_out=launcher_path, fps=fps_preset)
     else:
         create_launcher_script(game_dir, launcher_path, title=title)
 
@@ -307,6 +347,9 @@ def run_game(targets, args, unknown_args):
         "--timeout", str(args.timeout),
     ]
 
+    if patches_bin.exists():
+        cmd.extend(["--patches", str(patches_bin.resolve())])
+
     if args.cpu_only:
         cmd.append("--cpu-only")
     if args.permissive:
@@ -315,6 +358,16 @@ def run_game(targets, args, unknown_args):
     cmd.extend(unknown_args)
 
     env = os.environ.copy()
+    if args.no_cap_fps or fps_preset == "uncap":
+        env["BB_NO_CAP_FPS"] = "1"
+        env["BB_FPS_LIMIT"] = "0"
+        env["BB_VBLANK_HZ"] = "0"
+        env["BB_FPS"] = "uncap"
+    elif fps_preset in ("30", "60", "90"):
+        env["BB_FPS"] = fps_preset
+        env["BB_FPS_LIMIT"] = fps_preset
+        env["BB_NO_CAP_FPS"] = "0"
+
     if args.permissive:
         env["PS4_PERMISSIVE"] = "1"
     env["SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS"] = "1"
@@ -343,6 +396,8 @@ def main():
     p_cmp.add_argument("game_dir", type=Path, help="extracted game directory")
     p_cmp.add_argument("--out", type=Path, default=OUT, help="output directory")
     p_cmp.add_argument("--app-out", type=Path, default=None, help="standalone executable launcher path")
+    p_cmp.add_argument("--no-cap-fps", "--uncap-fps", dest="no_cap_fps", action="store_true", default=True, help="uncap frame rate limit")
+    p_cmp.add_argument("--fps", choices=["30", "60", "90", "uncap"], default="uncap", help="target fps preset")
 
     # desktop
     p_dsk = sub.add_parser("desktop", help="install a desktop shortcut with game icon to application menu")
@@ -351,6 +406,8 @@ def main():
     # run
     p_run = sub.add_parser("run", help="run or build a ps4 game from folder, .pkg, or multiple pkgs")
     p_run.add_argument("targets", type=Path, nargs="+", help="path(s) to game directory, .pkg file(s), or folder of pkgs")
+    p_run.add_argument("--no-cap-fps", "--uncap-fps", dest="no_cap_fps", action="store_true", default=True, help="uncap frame rate limit")
+    p_run.add_argument("--fps", choices=["30", "60", "90", "uncap"], default="uncap", help="target fps preset")
     p_run.add_argument("--cpu-only", action="store_true", help="run without vulkan gpu window")
     p_run.add_argument("--permissive", action="store_true", help="stub unhandled imports with 0")
     p_run.add_argument("--timeout", type=int, default=0, help="timeout in seconds (0 = unlimited)")
@@ -365,7 +422,8 @@ def main():
     elif args.command == "inspect":
         inspect_game(args.target)
     elif args.command == "compile":
-        compile_game(args.game_dir, args.out, app_out=args.app_out)
+        fps_preset = "uncap" if args.no_cap_fps else args.fps
+        compile_game(args.game_dir, args.out, app_out=args.app_out, fps=fps_preset)
     elif args.command == "desktop":
         create_desktop_entry(args.game_dir)
     elif args.command == "run":

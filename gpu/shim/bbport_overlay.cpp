@@ -362,8 +362,32 @@ void Menu() {
         }
     }
 
-    ImGui::SeparatorText("Miscellaneous");
+    ImGui::SeparatorText("Performance & Frame Rate");
     Checkbox("FPS counter in corner", s.show_fps);
+
+    bool uncap = s.uncap_fps.load();
+    if (ImGui::Checkbox("No limit / Uncapped FPS", &uncap)) {
+        s.uncap_fps = uncap;
+        if (uncap) s.fps_limit = 0;
+        BbSettings::Save();
+    }
+    if (!uncap) {
+        int limit = s.fps_limit.load();
+        if (limit <= 0) limit = 60;
+        ImGui::SetNextItemWidth(180.0f * base_scale);
+        if (ImGui::SliderInt("FPS Limit", &limit, 30, 240, "%d FPS")) {
+            s.fps_limit = limit;
+            BbSettings::Save();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("30##fps")) { s.fps_limit = 30; BbSettings::Save(); }
+        ImGui::SameLine();
+        if (ImGui::Button("60##fps")) { s.fps_limit = 60; BbSettings::Save(); }
+        ImGui::SameLine();
+        if (ImGui::Button("120##fps")) { s.fps_limit = 120; BbSettings::Save(); }
+        ImGui::SameLine();
+        if (ImGui::Button("144##fps")) { s.fps_limit = 144; BbSettings::Save(); }
+    }
 
     ImGui::Spacing();
     if (ImGui::Button("Close")) {

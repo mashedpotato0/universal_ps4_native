@@ -19,6 +19,7 @@ bloodborne
 *.desktop
 
 # runtime logs and cache
+bbport.ini
 *.log
 *.cache
 .cache/

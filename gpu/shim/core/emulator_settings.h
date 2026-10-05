@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <string>
+#include "bbport_settings.h"
 #include "common/types.h"
 
 u32 BbDisplayRefreshHz(); // bbgpu.cpp: primary display refresh rate, 60 when unknown
@@ -43,12 +44,13 @@ public:
     }
     /// Frames per second the present thread lets through; 0 = no limit. BB_FPS_LIMIT overrides.
     u32 GetFrameLimit() {
-        static const u32 value = [] {
-            const long limit = Number("BB_FPS_LIMIT", -1);
-            if (limit >= 0) return u32(limit);
-            return Number("BB_VBLANK_HZ", 60) > 0 ? 0u : std::min<u32>(BbDisplayRefreshHz(), 120);
-        }();
-        return value;
+        const auto& s = BbSettings::Get();
+        if (s.uncap_fps.load()) return 0u;
+        const int limit = s.fps_limit.load();
+        if (limit > 0) return u32(limit);
+        const long env_limit = Number("BB_FPS_LIMIT", -1);
+        if (env_limit >= 0) return u32(env_limit);
+        return 0u;
     }
     bool IsCopyGpuBuffers() { static const auto value = Flag("BB_COPY_GPU_BUFFERS", false); return value; }
     bool IsDirectMemoryAccessEnabled() { static const auto value = Flag("BB_DIRECT_MEMORY_ACCESS", false); return value; }

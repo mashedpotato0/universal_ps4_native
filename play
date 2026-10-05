@@ -95,6 +95,8 @@ def main():
         description="Universal One-Click PS4 Native Game Launcher"
     )
     parser.add_argument("targets", nargs="*", default=[], help="path(s) to game folder, .pkg file(s), or pkg directory")
+    parser.add_argument("--no-cap-fps", "--uncap-fps", dest="no_cap_fps", action="store_true", default=False, help="uncap frame rate limit")
+    parser.add_argument("--fps", choices=["30", "60", "90", "uncap"], default=None, help="target fps preset")
     parser.add_argument("--cpu-only", action="store_true", help="run without vulkan gpu window")
     parser.add_argument("--permissive", action="store_true", help="stub unhandled imports with 0")
     parser.add_argument("--timeout", type=int, default=0, help="timeout in seconds")
@@ -136,6 +138,10 @@ def main():
 
     # execute runner cli
     cmd = [sys.executable, str(cli_script), "run"] + target_paths
+    if args.no_cap_fps:
+        cmd.append("--no-cap-fps")
+    if args.fps:
+        cmd.extend(["--fps", str(args.fps)])
     if args.cpu_only:
         cmd.append("--cpu-only")
     if args.permissive:

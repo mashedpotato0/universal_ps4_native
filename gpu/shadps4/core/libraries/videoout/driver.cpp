@@ -620,6 +620,10 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
             continue;
         }
 
+        const u32 frame_limit = EmulatorSettings.GetFrameLimit();
+        const auto frame_period = frame_limit ? std::chrono::nanoseconds(1000000000 / frame_limit)
+                                              : std::chrono::nanoseconds(0);
+
         // Check if it's time to take a request.
         auto& vblank_status = main_port.vblank_status;
         const auto now = std::chrono::steady_clock::now();

@@ -52,6 +52,10 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.debug_view = std::clamp(i, 0, DebugViewCount - 1);
     } else if (key == "show_fps") {
         v.show_fps = i != 0;
+    } else if (key == "uncap_fps") {
+        v.uncap_fps = i != 0;
+    } else if (key == "fps_limit") {
+        v.fps_limit = std::max(0, i);
     } else if (key == "fsr4_auto_exposure") {
         v.fsr4_auto_exposure = i != 0;
     } else if (key == "fsr4_invert_jitter") {
@@ -117,6 +121,20 @@ void Load() {
     for (const auto& [env, key] : env_keys) {
         if (const char* value = std::getenv(env)) {
             Set(v, key, value);
+        }
+    }
+    if (const char* env = std::getenv("BB_NO_CAP_FPS")) {
+        v.uncap_fps = (env[0] == '1' || env[0] == 'y' || env[0] == 't');
+        if (v.uncap_fps) v.fps_limit = 0;
+    }
+    if (const char* env = std::getenv("BB_FPS_LIMIT")) {
+        int val = std::atoi(env);
+        if (val == 0) {
+            v.uncap_fps = true;
+            v.fps_limit = 0;
+        } else if (val > 0) {
+            v.uncap_fps = false;
+            v.fps_limit = val;
         }
     }
     v.startup_preset = v.preset;
@@ -188,6 +206,7 @@ void Save() {
     }
     std::fprintf(file, "model_lod=%d\noutput_res=%dx%d\n", v.model_lod.load(),
                  OutputWidths[v.output_res], OutputHeights[v.output_res]);
+    std::fprintf(file, "uncap_fps=%d\nfps_limit=%d\n", int(v.uncap_fps.load()), v.fps_limit.load());
     // Read by run.sh at start.
     std::fprintf(file, "live_resolution=%s\n", v.live_resolution < 0 ? "auto"
                                                   : v.live_resolution ? "1" : "0");
