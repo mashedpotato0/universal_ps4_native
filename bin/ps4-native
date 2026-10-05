@@ -153,6 +153,12 @@ fi
 
 mkdir -p "$USER_DIR"
 export SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1
+export BB_CONFIG="${{BB_CONFIG:-$HERE/bbport.ini}}"
+export BB_NO_CAP_FPS="${{BB_NO_CAP_FPS:-1}}"
+export BB_FPS_LIMIT="${{BB_FPS_LIMIT:-0}}"
+export BB_VBLANK_HZ="${{BB_VBLANK_HZ:-0}}"
+export BB_FPS="${{BB_FPS:-uncap}}"
+export BB_DMEM_MB="${{BB_DMEM_MB:-9152}}"
 
 # load hardware profile or run detection
 if [[ ! -f "$HERE/out/hardware_profile.env" && -f "$HERE/scripts/detect_hardware.py" ]]; then
@@ -163,6 +169,16 @@ if [[ -f "$HERE/out/hardware_profile.env" ]]; then
     source "$HERE/out/hardware_profile.env"
     if [[ -z "${{BB_GPU_ID:-}}" && -n "${{HW_DISCRETE_GPU_ID:-}}" && "${{HW_DISCRETE_GPU_ID}}" != "-1" ]]; then
         export BB_GPU_ID="$HW_DISCRETE_GPU_ID"
+    fi
+fi
+
+# apply resolution scaling from bbport.ini if configured
+if [[ -z ${{BB_RENDER_RES:-}} && -f "$BB_CONFIG" ]]; then
+    read -r scaled_render scaled_output < <(python3 "$HERE/scripts/patches.py" --print-scaled --settings "$BB_CONFIG") || true
+    if [[ -n ${{scaled_output:-}} ]]; then
+        export BB_RENDER_RES="$scaled_render"
+        export BB_OUTPUT_RES="$scaled_output"
+        export BB_AUTO_RENDER_RES=1
     fi
 fi
 
@@ -228,7 +244,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+CONTENT="$HERE/out/content.bin"
+if [[ ! -f "$CONTENT" && -f "$HERE/scripts/content_profile.py" ]]; then
+    python3 "$HERE/scripts/content_profile.py" "$APP0" --out "$HERE/out" --sku full >/dev/null 2>&1 || true
+fi
+
 RUNTIME_ARGS=("$RUNTIME" "$BOOT" --app0 "$APP0" --user "$USER_DIR" --timeout "${{TIMEOUT:-0}}")
+if [[ -f "$CONTENT" ]]; then
+    RUNTIME_ARGS+=(--content-profile "$CONTENT")
+fi
 if [[ -f "$PATCHES" ]]; then
     RUNTIME_ARGS+=(--patches "$PATCHES")
 fi
@@ -302,18 +326,35 @@ def compile_game(game_dir: Path, out_dir: Path = OUT, app_out: Path = None, fps:
     boot_bin = out_dir / "boot-linked.bin"
     print(f"native compilation successful: {boot_bin}")
 
-    # generate game patches
-    patches_dir = ROOT / "patches"
-    if patches_dir.exists():
-        print(f"compiling game patches (fps preset: {fps})...")
+    # generate content profile
+    content_script = SCRIPTS / "content_profile.py"
+    if content_script.exists():
         try:
             run_cmd([
-                sys.executable, str(SCRIPTS / "patches.py"),
+                sys.executable, str(content_script),
+                str(game_dir),
                 "--out", str(out_dir),
-                "--fps", str(fps),
-                "--game-dir", str(game_dir),
-                "--patches-dir", str(patches_dir),
+                "--sku", "full",
             ])
+        except Exception as e:
+            print(f"warning: content profile generation failed: {e}")
+
+    # generate game patches
+    patches_dir = ROOT / "patches"
+    config_file = ROOT / "bbport.ini"
+    if patches_dir.exists():
+        print(f"compiling game patches (fps preset: {fps})...")
+        patch_cmd = [
+            sys.executable, str(SCRIPTS / "patches.py"),
+            "--out", str(out_dir),
+            "--fps", str(fps),
+            "--game-dir", str(game_dir),
+            "--patches-dir", str(patches_dir),
+        ]
+        if config_file.exists():
+            patch_cmd.extend(["--settings", str(config_file)])
+        try:
+            run_cmd(patch_cmd)
         except Exception as e:
             print(f"warning: patch generation failed: {e}")
 
@@ -404,6 +445,13 @@ def run_game(targets, args, unknown_args):
     if getattr(args, "no_launch", False):
         return 0
 
+    content_bin = OUT / "content.bin"
+    if not content_bin.exists() and (SCRIPTS / "content_profile.py").exists():
+        try:
+            run_cmd([sys.executable, str(SCRIPTS / "content_profile.py"), str(game_dir), "--out", str(OUT), "--sku", "full"])
+        except Exception:
+            pass
+
     cmd = [
         str(runtime_bin),
         str(boot_bin),
@@ -411,6 +459,9 @@ def run_game(targets, args, unknown_args):
         "--user", str(args.user_dir or (ROOT / "user").resolve()),
         "--timeout", str(args.timeout),
     ]
+
+    if content_bin.exists():
+        cmd.extend(["--content-profile", str(content_bin.resolve())])
 
     if patches_bin.exists():
         cmd.extend(["--patches", str(patches_bin.resolve())])
@@ -423,6 +474,22 @@ def run_game(targets, args, unknown_args):
     cmd.extend(unknown_args)
 
     env = os.environ.copy()
+    config_file = ROOT / "bbport.ini"
+    if config_file.exists():
+        env["BB_CONFIG"] = str(config_file.resolve())
+        try:
+            scaled = subprocess.check_output([
+                sys.executable, str(SCRIPTS / "patches.py"),
+                "--print-scaled", "--settings", str(config_file)
+            ]).decode().strip().split()
+            if len(scaled) == 2:
+                env["BB_RENDER_RES"] = scaled[0]
+                env["BB_OUTPUT_RES"] = scaled[1]
+                env["BB_AUTO_RENDER_RES"] = "1"
+        except Exception:
+            pass
+
+    env["BB_DMEM_MB"] = "9152"
     if args.no_cap_fps or fps_preset == "uncap":
         env["BB_NO_CAP_FPS"] = "1"
         env["BB_FPS_LIMIT"] = "0"
@@ -432,6 +499,7 @@ def run_game(targets, args, unknown_args):
         env["BB_FPS"] = fps_preset
         env["BB_FPS_LIMIT"] = fps_preset
         env["BB_NO_CAP_FPS"] = "0"
+        env["BB_VBLANK_HZ"] = fps_preset
 
     cap_bin = ROOT / "out/ps4-gpu-capabilities"
     if getattr(args, "gpu", None) is not None:
