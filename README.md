@@ -68,25 +68,37 @@ Compile the native runtime and GPU translation layers:
 
 ## Step-by-Step User Guide
 
-### Quick Start: Run a PS4 .pkg Directly
-You can run any PS4 `.pkg` file in a single step. The CLI will automatically extract the container, link its modules, and launch the game natively:
+### Quick Start: Run a Game Directly
+You can run any PS4 `.pkg` file or folder containing multiple `.pkg` files (base game + update patches) in a single step. The CLI automatically discovers packages, orders dependencies (Base -> DLC -> Patches), extracts them, links modules, and launches natively:
 ```bash
+# run from a single pkg file
 ./bin/ps4-native run /path/to/game.pkg
+
+# or run directly from a folder with base game and update patches
+./bin/ps4-native run /path/to/pkg_folder/
 ```
 
 ---
 
 ### Advanced Workflow
 
-#### Step 1: Extract the Package
-Extract a PS4 `.pkg` file into a working directory containing `eboot.bin`, `param.sfo`, and game assets:
+#### Step 1: Extract Packages (Single File, Multiple Files, or Folder)
+Extract one or multiple `.pkg` files into a game directory. When pointing to a folder, the CLI automatically ignores non-PKG downloader metadata (`.sqlite`, `.xml`), orders base game and patches correctly, and extracts them in sequence:
 ```bash
-./bin/ps4-native extract /path/to/game.pkg --out ./extracted/CUSAXXXXX
+# extract from a folder containing base game and update pkgs
+./bin/ps4-native extract /path/to/pkg_folder/ --out ./extracted/CUSAXXXXX
+
+# or pass multiple files explicitly
+./bin/ps4-native extract base_game.pkg update_v109.pkg --out ./extracted/CUSAXXXXX
 ```
 
-#### Step 2: Inspect Game Metadata and Native Binaries
-Inspect `param.sfo` title information, entry points, loadable segments, and symbols from all bundled `.prx` modules:
+#### Step 2: Inspect Game Metadata and Packages
+Inspect `.pkg` containers, package folders, or extracted directories to view title metadata, categories, versions, and entry points:
 ```bash
+# inspect a folder containing packages
+./bin/ps4-native inspect /path/to/pkg_folder/
+
+# or inspect an already extracted game directory
 ./bin/ps4-native inspect ./extracted/CUSAXXXXX
 ```
 

@@ -14,6 +14,9 @@ OUT = ROOT / "out"
 BIN = ROOT / "bin"
 
 sys.path.insert(0, str(SCRIPTS))
+import pkg
+import prepare
+import link_modules
 
 
 def run_cmd(cmd, env=None, check=True):
@@ -21,66 +24,84 @@ def run_cmd(cmd, env=None, check=True):
     return subprocess.run(cmd, env=env, check=check)
 
 
-def extract_pkg(pkg_path: Path, dest_dir: Path):
-    # extract pkg using ps4 pkg tool
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    tool = shutil.which("ps4-pkg-tool") or str(Path.home() / ".local/bin/ps4-pkg-tool")
-    if not Path(tool).exists():
-        raise RuntimeError("ps4-pkg-tool not found in path or ~/.local/bin")
-
-    print(f"extracting {pkg_path} to {dest_dir}...")
-    run_cmd([tool, str(pkg_path), str(dest_dir)])
-    print(f"extraction complete: {dest_dir}")
-    return dest_dir
-
-
 def read_sfo(game_dir: Path):
     # parse sfo metadata
     sfo_path = game_dir / "sce_sys/param.sfo"
     if not sfo_path.exists():
         return {}
-    import prepare
     try:
         return prepare.sfo(sfo_path.read_bytes())
     except Exception:
         return {}
 
 
+def extract_targets(targets, out_dir: Path = None):
+    # scan for pkg files and extract in dependency order
+    found = pkg.scan_pkgs(targets)
+    if not found:
+        raise FileNotFoundError(f"no valid ps4 .pkg files found in {targets}")
+
+    # determine title id for destination folder
+    title_id = "unknown_game"
+    for item in found:
+        if item.get("title_id") and item["title_id"] != "Unknown":
+            title_id = item["title_id"]
+            break
+
+    dest = out_dir or (ROOT / "extracted" / title_id)
+    return pkg.extract_pkgs(found, dest)
+
+
 def inspect_game(target: Path):
-    # inspect pkg or extracted game directory
-    temp_dir = None
-    game_dir = target
+    # inspect pkg folder or extracted game directory
+    if not target.exists():
+        raise FileNotFoundError(f"target path not found: {target}")
 
-    if target.is_file() and target.suffix.lower() == ".pkg":
-        print(f"inspecting package: {target}")
-        sfo_data = {}
-    elif target.is_dir():
-        sfo_data = read_sfo(target)
-    else:
-        raise ValueError(f"invalid game target: {target}")
+    # check if target contains pkg files
+    pkg_list = pkg.scan_pkgs(target)
+    if pkg_list:
+        sorted_pkgs = pkg.sort_pkgs_for_extraction(pkg_list)
+        print(f"\n--- ps4 package bundle ({len(sorted_pkgs)} package{'s' if len(sorted_pkgs) != 1 else ''}) ---")
+        for idx, item in enumerate(sorted_pkgs, 1):
+            size_gb = item["size"] / (1024 ** 3)
+            size_str = f"{size_gb:.2f} GB" if size_gb >= 1.0 else f"{item['size'] / (1024**2):.1f} MB"
+            print(f"[{idx}] {item['name']}")
+            print(f"    type:     {item['label']}")
+            print(f"    title:    {item['title']}")
+            print(f"    title id: {item['title_id']}")
+            print(f"    version:  v{item['app_ver']}")
+            print(f"    size:     {size_str}")
 
-    print("\n--- ps4 title information ---")
-    title = sfo_data.get("TITLE", "unknown")
-    title_id = sfo_data.get("TITLE_ID", "unknown")
-    app_ver = sfo_data.get("APP_VER", "unknown")
-    sdk_ver = sfo_data.get("SYSTEM_VER", "unknown")
-    print(f"title:    {title}")
-    print(f"title id: {title_id}")
-    print(f"version:  {app_ver}")
-    print(f"sdk ver:  {sdk_ver}")
+    # check if target or extracted dir has eboot
+    eboot = None
+    game_dir = None
+    if target.is_dir() and (target / "eboot.bin").exists():
+        game_dir = target
+        eboot = target / "eboot.bin"
+    elif pkg_list:
+        # check if already extracted in extracted/<title_id>
+        for item in pkg_list:
+            cand = ROOT / "extracted" / item["title_id"]
+            if (cand / "eboot.bin").exists():
+                game_dir = cand
+                eboot = cand / "eboot.bin"
+                break
 
-    eboot = game_dir / "eboot.bin"
-    if not eboot.exists():
-        print(f"note: eboot.bin not found directly in {game_dir}")
+    if not eboot:
+        if not pkg_list:
+            print(f"note: eboot.bin not found directly in {target}")
         return
 
-    import prepare
-    import link_modules
+    print(f"\n--- extracted binary analysis ({game_dir}) ---")
+    sfo_data = read_sfo(game_dir)
+    print(f"title:    {sfo_data.get('TITLE', 'unknown')}")
+    print(f"title id: {sfo_data.get('TITLE_ID', 'unknown')}")
+    print(f"version:  {sfo_data.get('APP_VER', 'unknown')}")
+
     raw = eboot.read_bytes()
     elf, header, ph, segments, missing = prepare.parse_self(raw)
     loads = [p for p in ph if p['type'] in (1, 0x61000010)]
     size = max(p['vaddr'] + p['memsz'] for p in loads)
-    print(f"\n--- native binary analysis ---")
     print(f"architecture:      x86_64 (native amd64)")
     print(f"entry point:       {header[4]:#x}")
     print(f"memory image size: {size:,} bytes ({size / (1024*1024):.1f} MiB)")
@@ -91,13 +112,12 @@ def inspect_game(target: Path):
     prxs = sorted(p.name for p in modules_dir.glob("*.prx")) if modules_dir.exists() else []
     print(f"bundled modules:   {', '.join(prxs) if prxs else 'none'}")
 
-    # test prx parseability
     linkable = []
     for prx in prxs:
         try:
             m = link_modules.module(modules_dir / prx)
             linkable.append((prx, len(m['symbols'])))
-        except Exception as e:
+        except Exception:
             pass
     print(f"linkable modules:  {len(linkable)} of {len(prxs)}")
     for name, sym_count in linkable:
@@ -110,9 +130,6 @@ def compile_game(game_dir: Path, out_dir: Path = OUT, app_out: Path = None):
     eboot = game_dir / "eboot.bin"
     if not eboot.exists():
         raise FileNotFoundError(f"eboot.bin not found in {game_dir}")
-
-    import prepare
-    import link_modules
 
     print(f"preparing native image from {eboot}...")
     prepare.prepare(game_dir, out_dir)
@@ -152,6 +169,29 @@ def compile_game(game_dir: Path, out_dir: Path = OUT, app_out: Path = None):
     return boot_bin
 
 
+def resolve_game_dir(target: Path, rebuild: bool = False) -> Path:
+    # resolve game directory from path pkg or folder of pkgs
+    if target.is_dir() and (target / "eboot.bin").exists():
+        return target
+
+    # scan for pkgs if target is pkg or directory
+    pkgs = pkg.scan_pkgs(target)
+    if pkgs:
+        # get title id
+        title_id = "unknown_game"
+        for item in pkgs:
+            if item.get("title_id") and item["title_id"] != "Unknown":
+                title_id = item["title_id"]
+                break
+        dest = ROOT / "extracted" / title_id
+        if not (dest / "eboot.bin").exists() or rebuild:
+            print(f"target requires extraction to {dest}")
+            pkg.extract_pkgs(pkgs, dest)
+        return dest
+
+    raise FileNotFoundError(f"could not find game binary or valid pkgs in {target}")
+
+
 def run_game(target: Path, args, unknown_args):
     # build runtime if not built
     runtime_bin = OUT / "ps4-runtime"
@@ -159,12 +199,7 @@ def run_game(target: Path, args, unknown_args):
         print("runtime binary missing; running build.sh...")
         run_cmd(["bash", str(ROOT / "build.sh")])
 
-    game_dir = target
-    if target.is_file() and target.suffix.lower() == ".pkg":
-        dest = ROOT / "extracted" / target.stem
-        if not (dest / "eboot.bin").exists():
-            extract_pkg(target, dest)
-        game_dir = dest
+    game_dir = resolve_game_dir(target, args.rebuild)
 
     boot_bin = OUT / "boot-linked.bin"
     if not boot_bin.exists() or args.rebuild:
@@ -201,13 +236,13 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     # extract
-    p_ext = sub.add_parser("extract", help="extract a ps4 .pkg file")
-    p_ext.add_argument("pkg", type=Path, help="path to .pkg file")
-    p_ext.add_argument("--out", type=Path, default=None, help="output directory")
+    p_ext = sub.add_parser("extract", help="extract a ps4 .pkg file, multiple files, or directory of pkgs")
+    p_ext.add_argument("targets", type=Path, nargs="+", help="path(s) to .pkg file(s) or directory containing pkgs")
+    p_ext.add_argument("--out", type=Path, default=None, help="output directory (defaults to extracted/<TITLE_ID>)")
 
     # inspect
-    p_ins = sub.add_parser("inspect", help="inspect a ps4 pkg or game directory")
-    p_ins.add_argument("target", type=Path, help="path to .pkg or game directory")
+    p_ins = sub.add_parser("inspect", help="inspect ps4 pkg(s), directory of pkgs, or extracted game directory")
+    p_ins.add_argument("target", type=Path, help="path to .pkg, folder of pkgs, or extracted game directory")
 
     # compile
     p_cmp = sub.add_parser("compile", help="compile/link ps4 eboot to native binary")
@@ -216,8 +251,8 @@ def main():
     p_cmp.add_argument("--app-out", type=Path, default=None, help="standalone executable launcher path")
 
     # run
-    p_run = sub.add_parser("run", help="run a ps4 game natively")
-    p_run.add_argument("target", type=Path, help="path to game directory or .pkg")
+    p_run = sub.add_parser("run", help="run a ps4 game natively from folder, .pkg, or directory of pkgs")
+    p_run.add_argument("target", type=Path, help="path to game directory, .pkg, or folder of pkgs")
     p_run.add_argument("--cpu-only", action="store_true", help="run without vulkan gpu window")
     p_run.add_argument("--permissive", action="store_true", help="stub unhandled imports with 0")
     p_run.add_argument("--timeout", type=int, default=0, help="timeout in seconds (0 = unlimited)")
@@ -227,8 +262,7 @@ def main():
     args, unknown = parser.parse_known_args()
 
     if args.command == "extract":
-        out = args.out or (ROOT / "extracted" / args.pkg.stem)
-        extract_pkg(args.pkg, out)
+        extract_targets(args.targets, out_dir=args.out)
     elif args.command == "inspect":
         inspect_game(args.target)
     elif args.command == "compile":
