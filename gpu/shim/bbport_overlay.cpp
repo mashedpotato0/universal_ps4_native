@@ -155,7 +155,7 @@ void Menu() {
                             ImGuiCond_Appearing);
     ImGui::SetNextWindowSize(ImVec2(620.0f * base_scale, 0.0f), ImGuiCond_Appearing);
     bool keep_open = true;
-    if (!ImGui::Begin("Bloodborne — Settings  (Insert / L3+R3)", &keep_open,
+    if (!ImGui::Begin("Settings  (Insert / L3+R3)", &keep_open,
                       ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return;
@@ -414,7 +414,7 @@ void Menu() {
                 BbSettings::Save();
             }
 
-            ImGui::SeparatorText("Key Mappings");
+            ImGui::SeparatorText("Gamepad Button Mappings");
             Hint("Click any button below to rebind. Then press any keyboard key or mouse button.");
 
             if (ImGui::Button("Reset All to Default Bindings")) {
@@ -424,7 +424,7 @@ void Menu() {
             ImGui::Spacing();
 
             if (ImGui::BeginTable("KeyBindingsTable", 2, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp)) {
-                ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableSetupColumn("Button", ImGuiTableColumnFlags_WidthStretch);
                 ImGui::TableSetupColumn("Assigned Key / Button", ImGuiTableColumnFlags_WidthFixed, 200.0f * base_scale);
                 ImGui::TableHeadersRow();
 

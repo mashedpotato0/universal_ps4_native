@@ -174,35 +174,36 @@ static void sample_host(PadData *d) {
         d->right_y = (uint8_t)(ry < 0 ? 0 : ry > 255 ? 255 : ry);
     }
 
-    // action bindings
-    bool fwd = is_action_pressed(k, numkeys, mb, BB_ACTION_FORWARD);
-    bool bwd = is_action_pressed(k, numkeys, mb, BB_ACTION_BACKWARD);
-    bool lft = is_action_pressed(k, numkeys, mb, BB_ACTION_LEFT);
-    bool rgt = is_action_pressed(k, numkeys, mb, BB_ACTION_RIGHT);
+    // controller button bindings
+    bool fwd = is_action_pressed(k, numkeys, mb, BB_ACTION_LS_UP);
+    bool bwd = is_action_pressed(k, numkeys, mb, BB_ACTION_LS_DOWN);
+    bool lft = is_action_pressed(k, numkeys, mb, BB_ACTION_LS_LEFT);
+    bool rgt = is_action_pressed(k, numkeys, mb, BB_ACTION_LS_RIGHT);
     d->left_x = (uint8_t)(128 - (lft ? 128 : 0) + (rgt ? 127 : 0));
     d->left_y = (uint8_t)(128 - (fwd ? 128 : 0) + (bwd ? 127 : 0));
 
-    if (is_action_pressed(k, numkeys, mb, BB_ACTION_INTERACT)) d->buttons |= BTN_CROSS;
-    if (is_action_pressed(k, numkeys, mb, BB_ACTION_DODGE)) d->buttons |= BTN_CIRCLE;
-    if (is_action_pressed(k, numkeys, mb, BB_ACTION_USE_ITEM)) d->buttons |= BTN_SQUARE;
-    if (is_action_pressed(k, numkeys, mb, BB_ACTION_SWITCH_MODE)) d->buttons |= BTN_TRIANGLE;
-    if (is_action_pressed(k, numkeys, mb, BB_ACTION_TRICK)) d->buttons |= BTN_L1;
-    if (is_action_pressed(k, numkeys, mb, BB_ACTION_LIGHT_ATK)) d->buttons |= BTN_R1;
-    if (is_action_pressed(k, numkeys, mb, BB_ACTION_HEAVY_ATK)) {
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_CROSS)) d->buttons |= BTN_CROSS;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_CIRCLE)) d->buttons |= BTN_CIRCLE;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_SQUARE)) d->buttons |= BTN_SQUARE;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_TRIANGLE)) d->buttons |= BTN_TRIANGLE;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_L1)) d->buttons |= BTN_L1;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_R1)) d->buttons |= BTN_R1;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_R2)) {
         d->buttons |= BTN_R2;
         d->r2 = 255;
     }
-    if (is_action_pressed(k, numkeys, mb, BB_ACTION_GUN)) {
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_L2)) {
         d->buttons |= BTN_L2;
         d->l2 = 255;
     }
-    if (is_action_pressed(k, numkeys, mb, BB_ACTION_LOCK_ON)) d->buttons |= BTN_R3;
-    if (is_action_pressed(k, numkeys, mb, BB_ACTION_GESTURE)) d->buttons |= BTN_L3;
-    if (is_action_pressed(k, numkeys, mb, BB_ACTION_MENU)) d->buttons |= BTN_OPTIONS;
-    if (is_action_pressed(k, numkeys, mb, BB_ACTION_UP)) d->buttons |= BTN_UP;
-    if (is_action_pressed(k, numkeys, mb, BB_ACTION_DOWN)) d->buttons |= BTN_DOWN;
-    if (is_action_pressed(k, numkeys, mb, BB_ACTION_DLEFT)) d->buttons |= BTN_LEFT;
-    if (is_action_pressed(k, numkeys, mb, BB_ACTION_DRIGHT)) d->buttons |= BTN_RIGHT;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_R3)) d->buttons |= BTN_R3;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_L3)) d->buttons |= BTN_L3;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_OPTIONS)) d->buttons |= BTN_OPTIONS;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_TOUCHPAD)) touch_click(d, 0);
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_DPAD_UP)) d->buttons |= BTN_UP;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_DPAD_DOWN)) d->buttons |= BTN_DOWN;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_DPAD_LEFT)) d->buttons |= BTN_LEFT;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_DPAD_RIGHT)) d->buttons |= BTN_RIGHT;
 
     // fallbacks
     if (k && numkeys > SDL_SCANCODE_KP_ENTER && (k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_KP_ENTER])) d->buttons |= BTN_CROSS;

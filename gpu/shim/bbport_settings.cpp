@@ -84,6 +84,37 @@ void Set(Values& v, const std::string& key, const std::string& value) {
             }
         }
         if (!handled) {
+            static const struct { const char* old_key; int action; } compat[] = {
+                {"key_forward", BB_ACTION_LS_UP},
+                {"key_backward", BB_ACTION_LS_DOWN},
+                {"key_left", BB_ACTION_LS_LEFT},
+                {"key_right", BB_ACTION_LS_RIGHT},
+                {"key_interact", BB_ACTION_CROSS},
+                {"key_dodge", BB_ACTION_CIRCLE},
+                {"key_use_item", BB_ACTION_SQUARE},
+                {"key_switch_mode", BB_ACTION_TRIANGLE},
+                {"key_trick", BB_ACTION_L1},
+                {"key_light_atk", BB_ACTION_R1},
+                {"key_heavy_atk", BB_ACTION_R2},
+                {"key_gun", BB_ACTION_L2},
+                {"key_lock_on", BB_ACTION_R3},
+                {"key_gesture", BB_ACTION_L3},
+                {"key_menu", BB_ACTION_OPTIONS},
+                {"key_up", BB_ACTION_DPAD_UP},
+                {"key_down", BB_ACTION_DPAD_DOWN},
+                {"key_dleft", BB_ACTION_DPAD_LEFT},
+                {"key_dright", BB_ACTION_DPAD_RIGHT},
+            };
+            for (const auto& c : compat) {
+                if (key == c.old_key) {
+                    int code = BindingFromName(value);
+                    if (code > 0) v.key_bindings[c.action] = code;
+                    handled = true;
+                    break;
+                }
+            }
+        }
+        if (!handled) {
             for (int e = 0; e < EffectCount; ++e) {
                 if (key == Effects[e].key) {
                     v.effects[e] = i != 0;
