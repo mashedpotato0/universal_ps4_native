@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+# universal ps4 native runner and compiler cli
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SCRIPTS = ROOT / "scripts"
+OUT = ROOT / "out"
+BIN = ROOT / "bin"
+
+sys.path.insert(0, str(SCRIPTS))
+
+
+def run_cmd(cmd, env=None, check=True):
+    # execute shell command
+    return subprocess.run(cmd, env=env, check=check)
+
+
+def extract_pkg(pkg_path: Path, dest_dir: Path):
+    # extract pkg using ps4 pkg tool
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    tool = shutil.which("ps4-pkg-tool") or str(Path.home() / ".local/bin/ps4-pkg-tool")
+    if not Path(tool).exists():
+        raise RuntimeError("ps4-pkg-tool not found in path or ~/.local/bin")
+
+    print(f"extracting {pkg_path} to {dest_dir}...")
+    run_cmd([tool, str(pkg_path), str(dest_dir)])
+    print(f"extraction complete: {dest_dir}")
+    return dest_dir
+
+
+def read_sfo(game_dir: Path):
+    # parse sfo metadata
+    sfo_path = game_dir / "sce_sys/param.sfo"
+    if not sfo_path.exists():
+        return {}
+    import prepare
+    try:
+        return prepare.sfo(sfo_path.read_bytes())
+    except Exception:
+        return {}
+
+
+def inspect_game(target: Path):
+    # inspect pkg or extracted game directory
+    temp_dir = None
+    game_dir = target
+
+    if target.is_file() and target.suffix.lower() == ".pkg":
+        print(f"inspecting package: {target}")
+        sfo_data = {}
+    elif target.is_dir():
+        sfo_data = read_sfo(target)
+    else:
+        raise ValueError(f"invalid game target: {target}")
+
+    print("\n--- ps4 title information ---")
+    title = sfo_data.get("TITLE", "unknown")
+    title_id = sfo_data.get("TITLE_ID", "unknown")
+    app_ver = sfo_data.get("APP_VER", "unknown")
+    sdk_ver = sfo_data.get("SYSTEM_VER", "unknown")
+    print(f"title:    {title}")
+    print(f"title id: {title_id}")
+    print(f"version:  {app_ver}")
+    print(f"sdk ver:  {sdk_ver}")
+
+    eboot = game_dir / "eboot.bin"
+    if not eboot.exists():
+        print(f"note: eboot.bin not found directly in {game_dir}")
+        return
+
+    import prepare
+    import link_modules
+    raw = eboot.read_bytes()
+    elf, header, ph, segments, missing = prepare.parse_self(raw)
+    loads = [p for p in ph if p['type'] in (1, 0x61000010)]
+    size = max(p['vaddr'] + p['memsz'] for p in loads)
+    print(f"\n--- native binary analysis ---")
+    print(f"architecture:      x86_64 (native amd64)")
+    print(f"entry point:       {header[4]:#x}")
+    print(f"memory image size: {size:,} bytes ({size / (1024*1024):.1f} MiB)")
+    print(f"segments:          {len(ph)} total ({len(loads)} loadable)")
+
+    # check sce_module prx
+    modules_dir = game_dir / "sce_module"
+    prxs = sorted(p.name for p in modules_dir.glob("*.prx")) if modules_dir.exists() else []
+    print(f"bundled modules:   {', '.join(prxs) if prxs else 'none'}")
+
+    # test prx parseability
+    linkable = []
+    for prx in prxs:
+        try:
+            m = link_modules.module(modules_dir / prx)
+            linkable.append((prx, len(m['symbols'])))
+        except Exception as e:
+            pass
+    print(f"linkable modules:  {len(linkable)} of {len(prxs)}")
+    for name, sym_count in linkable:
+        print(f"  - {name}: {sym_count} symbols")
+
+
+def compile_game(game_dir: Path, out_dir: Path = OUT, app_out: Path = None):
+    # prepare eboot and link modules into native binary
+    out_dir.mkdir(parents=True, exist_ok=True)
+    eboot = game_dir / "eboot.bin"
+    if not eboot.exists():
+        raise FileNotFoundError(f"eboot.bin not found in {game_dir}")
+
+    import prepare
+    import link_modules
+
+    print(f"preparing native image from {eboot}...")
+    prepare.prepare(game_dir, out_dir)
+
+    # find modules to link
+    sce_module = game_dir / "sce_module"
+    modules_to_link = []
+    if sce_module.exists():
+        for candidate in ("libc.prx", "libSceFios2.prx"):
+            if (sce_module / candidate).is_file():
+                modules_to_link.append(candidate)
+
+    print(f"linking modules: {modules_to_link}...")
+    link_modules.link(game_dir, out_dir, module_names=tuple(modules_to_link))
+    boot_bin = out_dir / "boot-linked.bin"
+    print(f"native compilation successful: {boot_bin}")
+
+    # create standalone executable if requested
+    if app_out:
+        app_path = Path(app_out)
+        app_path.parent.mkdir(parents=True, exist_ok=True)
+        runtime_path = OUT / "ps4-runtime"
+        launcher_code = (
+            f"#!/usr/bin/env bash\n"
+            f"# native ps4 application\n"
+            f"set -euo pipefail\n"
+            f"RUNTIME=\"{runtime_path.resolve()}\"\n"
+            f"BOOT=\"{boot_bin.resolve()}\"\n"
+            f"APP0=\"{game_dir.resolve()}\"\n"
+            f"export SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1\n"
+            f"exec \"$RUNTIME\" \"$BOOT\" --app0 \"$APP0\" \"$@\"\n"
+        )
+        app_path.write_text(launcher_code)
+        app_path.chmod(0o755)
+        print(f"standalone executable created: {app_path}")
+
+    return boot_bin
+
+
+def run_game(target: Path, args, unknown_args):
+    # build runtime if not built
+    runtime_bin = OUT / "ps4-runtime"
+    if not runtime_bin.exists():
+        print("runtime binary missing; running build.sh...")
+        run_cmd(["bash", str(ROOT / "build.sh")])
+
+    game_dir = target
+    if target.is_file() and target.suffix.lower() == ".pkg":
+        dest = ROOT / "extracted" / target.stem
+        if not (dest / "eboot.bin").exists():
+            extract_pkg(target, dest)
+        game_dir = dest
+
+    boot_bin = OUT / "boot-linked.bin"
+    if not boot_bin.exists() or args.rebuild:
+        compile_game(game_dir, OUT)
+
+    cmd = [
+        str(runtime_bin),
+        str(boot_bin),
+        "--app0", str(game_dir.resolve()),
+        "--user", str(args.user_dir or (ROOT / "user").resolve()),
+        "--timeout", str(args.timeout),
+    ]
+
+    if args.cpu_only:
+        cmd.append("--cpu-only")
+    if args.permissive:
+        cmd.append("--permissive")
+
+    cmd.extend(unknown_args)
+
+    env = os.environ.copy()
+    if args.permissive:
+        env["PS4_PERMISSIVE"] = "1"
+    env["SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS"] = "1"
+
+    print(f"launching native ps4 app: {' '.join(cmd)}")
+    return run_cmd(cmd, env=env, check=False).returncode
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Universal PS4 Native Runtime & Compiler on Linux"
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    # extract
+    p_ext = sub.add_parser("extract", help="extract a ps4 .pkg file")
+    p_ext.add_argument("pkg", type=Path, help="path to .pkg file")
+    p_ext.add_argument("--out", type=Path, default=None, help="output directory")
+
+    # inspect
+    p_ins = sub.add_parser("inspect", help="inspect a ps4 pkg or game directory")
+    p_ins.add_argument("target", type=Path, help="path to .pkg or game directory")
+
+    # compile
+    p_cmp = sub.add_parser("compile", help="compile/link ps4 eboot to native binary")
+    p_cmp.add_argument("game_dir", type=Path, help="extracted game directory")
+    p_cmp.add_argument("--out", type=Path, default=OUT, help="output directory")
+    p_cmp.add_argument("--app-out", type=Path, default=None, help="standalone executable launcher path")
+
+    # run
+    p_run = sub.add_parser("run", help="run a ps4 game natively")
+    p_run.add_argument("target", type=Path, help="path to game directory or .pkg")
+    p_run.add_argument("--cpu-only", action="store_true", help="run without vulkan gpu window")
+    p_run.add_argument("--permissive", action="store_true", help="stub unhandled imports with 0")
+    p_run.add_argument("--timeout", type=int, default=0, help="timeout in seconds (0 = unlimited)")
+    p_run.add_argument("--user-dir", type=Path, default=None, help="user saves directory")
+    p_run.add_argument("--rebuild", action="store_true", help="force recompile before running")
+
+    args, unknown = parser.parse_known_args()
+
+    if args.command == "extract":
+        out = args.out or (ROOT / "extracted" / args.pkg.stem)
+        extract_pkg(args.pkg, out)
+    elif args.command == "inspect":
+        inspect_game(args.target)
+    elif args.command == "compile":
+        compile_game(args.game_dir, args.out, app_out=args.app_out)
+    elif args.command == "run":
+        code = run_game(args.target, args, unknown)
+        sys.exit(code)
+
+
+if __name__ == "__main__":
+    main()

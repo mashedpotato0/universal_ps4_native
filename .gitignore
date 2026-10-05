@@ -1,0 +1,39 @@
+# build artifacts
+out/
+build/
+*.o
+*.a
+*.so
+*.bin
+*.elf
+
+# game data and extractions
+user/
+extracted/
+pkg/
+saves/
+pgo/
+*.gcda
+*.gcno
+
+# runtime logs and cache
+*.log
+*.cache
+.cache/
+vk_driver_pipeline_cache.bin
+
+# python cache
+__pycache__/
+*.pyc
+
+# editor and system files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# compilation database
+compile_commands.json
+.ninja_*
