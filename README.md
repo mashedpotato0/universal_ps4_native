@@ -9,7 +9,7 @@ A universal runtime environment and compilation toolchain for executing PlayStat
 This project is an extension and generalization of the native PS4 port architecture demonstrated by [bbport](https://github.com/shadps4-emu/bbport) and [shadPS4](https://github.com/shadps4-emu/shadPS4).
 
 While previous efforts focused on custom-tailored environments for specific titles, **universal_ps4_native** abstracts and generalizes the native execution model into an automated, title-agnostic toolchain:
-- **Universal Package Extraction**: Automated unpacking of retail and fake PS4 `.pkg` containers.
+- **Universal Package Extraction**: Automated unpacking of PS4 `.pkg` containers.
 - **Dynamic ELF Re-linking**: Discovers, analyzes, and binds arbitrary PlayStation 4 `eboot.bin` files and bundled system modules (`.prx`) directly into native host memory.
 - **Permissive HLE Runtime**: Provides resilient Orbis OS system call and kernel shims with non-fatal stubbing for exploratory execution of unmapped services.
 - **Standalone Linux Compilation**: Generates native runnable Linux launcher binaries from game dumps.
@@ -31,6 +31,7 @@ PlayStation 4 games are not foreign-architecture console ROMs. The PlayStation 4
 ## Project Structure
 
 - `bin/ps4-native`: Primary command line tool for extraction, inspection, compilation, and execution.
+- `setup.sh`: Automated dependency manager that clones and updates git submodules, applies patches, and installs tool dependencies.
 - `build.sh`: Host compiler script building the native runtime binary with native CPU optimizations (`-march=native -mtune=native -O3`).
 - `src/`: Native C runtime shims for PS4 kernel, memory, threads, synchronization, files, audio, and pads.
 - `scripts/prepare.py`: Decrypted SELF parser and memory segment builder.
@@ -39,66 +40,99 @@ PlayStation 4 games are not foreign-architecture console ROMs. The PlayStation 4
 
 ---
 
-## Installation & Requirements
+## Getting Started
 
-### System Dependencies
-- Linux x86_64
+### 1. System Requirements
+- Linux x86_64 distribution (Arch, Fedora, Ubuntu, Debian, etc.)
 - GCC or Clang with C11 and C++23 support
-- Vulkan SDK / Vulkan loader and headers
-- SDL3 (`libsdl3-dev` or `sdl3`)
+- Vulkan SDK or driver headers (`vulkan-headers`, `vulkan-icd-loader`)
+- SDL3 library (`libsdl3-dev` or `sdl3`)
 - CMake and Ninja
 - Python 3.8+
-- `ps4-pkg-tool` (optional, for `.pkg` extraction)
 
-### Setup & Dependencies
-Run the setup script to initialize submodules, apply patches, and check/install external tools:
+### 2. Initial Setup
+Clone the repository and run the setup script to initialize all submodules, apply required patches, and prepare extraction tools:
 ```bash
+git clone --recursive https://github.com/mashedpotato0/universal_ps4_native.git
+cd universal_ps4_native
 ./setup.sh
 ```
 
-### Building the Runtime
+### 3. Build the Runtime
+Compile the native runtime and GPU translation layers:
 ```bash
 ./build.sh
 ```
 
 ---
 
-## Acknowledgments & Third-Party Credits
-This project relies on and acknowledges numerous upstream projects, including **shadPS4**, **bbport**, **ps4-pkg-tool**, **LibAtrac9**, **FSR-Vulkan**, **Dear ImGui**, **sirit**, **Zydis**, **VMA**, **miniz**, and others.
-For the complete list of licenses and authors, see [ACKNOWLEDGMENTS.md](file:///home/mash/game/universal_ps4_native/ACKNOWLEDGMENTS.md).
+## Step-by-Step User Guide
+
+### Quick Start: Run a PS4 .pkg Directly
+You can run any PS4 `.pkg` file in a single step. The CLI will automatically extract the container, link its modules, and launch the game natively:
+```bash
+./bin/ps4-native run /path/to/game.pkg
+```
 
 ---
 
-## Usage Guide
+### Advanced Workflow
 
-### 1. Extract a PS4 Package (.pkg)
+#### Step 1: Extract the Package
+Extract a PS4 `.pkg` file into a working directory containing `eboot.bin`, `param.sfo`, and game assets:
 ```bash
 ./bin/ps4-native extract /path/to/game.pkg --out ./extracted/CUSAXXXXX
 ```
 
-### 2. Inspect Title & Native Binary
+#### Step 2: Inspect Game Metadata and Native Binaries
+Inspect `param.sfo` title information, entry points, loadable segments, and symbols from all bundled `.prx` modules:
 ```bash
 ./bin/ps4-native inspect ./extracted/CUSAXXXXX
 ```
-Inspects metadata (`param.sfo`), entry point, loadable segments, and symbols in all bundled `.prx` modules.
 
-### 3. Compile to Standalone Native Executable
+#### Step 3: Compile into a Standalone Linux Executable
+Compile and link `eboot.bin` and bundled PRX modules (`libc.prx`, `libSceFios2.prx`, etc.) into a standalone Linux application:
 ```bash
 ./bin/ps4-native compile ./extracted/CUSAXXXXX --app-out ./my_game
 ```
-Links `eboot.bin` with `sce_module/*.prx`, patches initial TLS loads, and outputs a standalone executable launcher.
+This produces an executable `./my_game` that can be launched directly without running through Python.
 
-### 4. Run Natively
+#### Step 4: Run the Application
+Launch the standalone binary or use the runner CLI:
 ```bash
-# run compiled standalone executable directly
+# launch the compiled standalone executable
 ./my_game
 
-# or run via the runner cli
+# or launch using the cli driver
 ./bin/ps4-native run ./extracted/CUSAXXXXX
-
-# exploratory run with non-fatal stubs for unimplemented services
-./bin/ps4-native run ./extracted/CUSAXXXXX --permissive
-
-# headless test run
-./bin/ps4-native run ./extracted/CUSAXXXXX --cpu-only --timeout 5
 ```
+
+#### Runtime Flags and Controls
+- **Permissive Mode**: Stubs unhandled non-critical system imports with `0` so experimental titles can continue booting:
+  ```bash
+  ./bin/ps4-native run ./extracted/CUSAXXXXX --permissive
+  ```
+- **Headless / CPU-Only Mode**: Runs without opening a Vulkan window for testing compute, memory, and audio:
+  ```bash
+  ./bin/ps4-native run ./extracted/CUSAXXXXX --cpu-only
+  ```
+- **Timed Execution**: Run for a specified duration (in seconds) for automated benchmarking:
+  ```bash
+  ./bin/ps4-native run ./extracted/CUSAXXXXX --timeout 30
+  ```
+- **In-Game Settings Overlay**: Press `Insert` on keyboard or `L3 + R3` on gamepad to open the graphics and upscaler menu.
+
+---
+
+## Acknowledgments & Third-Party Credits
+
+This project relies on and acknowledges numerous upstream projects, including **shadPS4**, **bbport**, **ps4-pkg-tool**, **LibAtrac9**, **FSR-Vulkan**, **Dear ImGui**, **sirit**, **Zydis**, **VMA**, **miniz**, and others.
+For the complete list of licenses, contributors, and authors, see [ACKNOWLEDGMENTS.md](file:///home/mash/game/universal_ps4_native/ACKNOWLEDGMENTS.md).
+
+---
+
+## License
+
+This project is licensed strictly for non-commercial, educational, and research use under the **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0)**. See [LICENSE](file:///home/mash/game/universal_ps4_native/LICENSE) for the full text. Commercial use, redistribution for profit, or monetization of any derivative works is strictly prohibited.
+
+Third-party libraries retain their original licenses as detailed in [ACKNOWLEDGMENTS.md](file:///home/mash/game/universal_ps4_native/ACKNOWLEDGMENTS.md).
