@@ -63,6 +63,15 @@ void Scheduler::BeginRendering(const RenderState& new_state) {
     std::array<vk::RenderingAttachmentInfo, 8> color_attachments;
     for (u32 i = 0; i < render_state.num_color_attachments; ++i) {
         const auto& cb = render_state.color_attachments[i];
+        if (!cb.image_view) {
+            color_attachments[i] = vk::RenderingAttachmentInfo{
+                .imageView = nullptr,
+                .imageLayout = vk::ImageLayout::eUndefined,
+                .loadOp = vk::AttachmentLoadOp::eDontCare,
+                .storeOp = vk::AttachmentStoreOp::eDontCare,
+            };
+            continue;
+        }
         color_attachments[i] = vk::RenderingAttachmentInfo{
             .imageView = cb.image_view,
             .imageLayout = cb.image_layout,
@@ -73,8 +82,11 @@ void Scheduler::BeginRendering(const RenderState& new_state) {
     }
 
     const auto& db = render_state.depth_stencil_attachment;
+    const bool has_depth = db.has_depth && bool(db.image_view);
+    const bool has_stencil = db.has_stencil && bool(db.image_view);
+
     const vk::RenderingAttachmentInfo depth_attachment = {
-        .imageView = db.image_view,
+        .imageView = has_depth ? db.image_view : nullptr,
         .imageLayout = db.image_layout,
         .loadOp = db.depth_clear ? vk::AttachmentLoadOp::eClear : vk::AttachmentLoadOp::eLoad,
         .storeOp = vk::AttachmentStoreOp::eStore,
@@ -83,7 +95,7 @@ void Scheduler::BeginRendering(const RenderState& new_state) {
                                                                           db.clear_value[0])}},
     };
     const vk::RenderingAttachmentInfo stencil_attachment = {
-        .imageView = db.image_view,
+        .imageView = has_stencil ? db.image_view : nullptr,
         .imageLayout = db.image_layout,
         .loadOp = db.stencil_clear ? vk::AttachmentLoadOp::eClear : vk::AttachmentLoadOp::eLoad,
         .storeOp = vk::AttachmentStoreOp::eStore,
@@ -95,29 +107,26 @@ void Scheduler::BeginRendering(const RenderState& new_state) {
         .renderArea =
             {
                 .offset = {0, 0},
-                .extent = {render_state.width, render_state.height},
+                .extent = {std::max<u32>(render_state.width, 1u),
+                           std::max<u32>(render_state.height, 1u)},
             },
-        .layerCount = render_state.num_layers,
+        .layerCount = std::max<u32>(render_state.num_layers, 1u),
         .colorAttachmentCount = render_state.num_color_attachments,
         .pColorAttachments = color_attachments.data(),
-        .pDepthAttachment = db.has_depth ? &depth_attachment : nullptr,
-        .pStencilAttachment = db.has_stencil ? &stencil_attachment : nullptr,
+        .pDepthAttachment = has_depth ? &depth_attachment : nullptr,
+        .pStencilAttachment = has_stencil ? &stencil_attachment : nullptr,
     };
 
-    if (!recorder_thread.joinable()) {
+    if (!recorder_thread.joinable() || direct_mode) {
         current_cmdbuf.beginRendering(rendering_info);
         return;
     }
-    // The attachment infos live on this stack frame: the recorded closure keeps copies.
+    // keep copies of attachments in chunk
     Record([info = rendering_info, color_attachments, depth_attachment,
-            stencil_attachment](vk::CommandBuffer cmdbuf) mutable {
+            stencil_attachment, has_depth, has_stencil](vk::CommandBuffer cmdbuf) mutable {
         info.pColorAttachments = color_attachments.data();
-        if (info.pDepthAttachment) {
-            info.pDepthAttachment = &depth_attachment;
-        }
-        if (info.pStencilAttachment) {
-            info.pStencilAttachment = &stencil_attachment;
-        }
+        info.pDepthAttachment = has_depth ? &depth_attachment : nullptr;
+        info.pStencilAttachment = has_stencil ? &stencil_attachment : nullptr;
         cmdbuf.beginRendering(info);
     });
 }
@@ -127,6 +136,10 @@ void Scheduler::EndRendering() {
         return;
     }
     is_rendering = false;
+    if (!recorder_thread.joinable() || direct_mode) {
+        current_cmdbuf.endRendering();
+        return;
+    }
     Record([](vk::CommandBuffer cmdbuf) { cmdbuf.endRendering(); });
 }
 

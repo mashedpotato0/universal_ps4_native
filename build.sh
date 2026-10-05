@@ -45,7 +45,7 @@ gpu_so="out/gpu/libbbgpu.so"
 needs_gpu_build=0
 if [[ ! -f "$gpu_so" ]]; then
     needs_gpu_build=1
-elif [[ -n $(find gpu -maxdepth 3 \( -name '*.cpp' -o -name '*.h' -o -name 'CMakeLists.txt' \) -newer "$gpu_so" 2>/dev/null | head -1) ]]; then
+elif [[ -n $(find gpu/shadps4 gpu/shim gpu/CMakeLists.txt \( -name '*.cpp' -o -name '*.h' -o -name 'CMakeLists.txt' \) -newer "$gpu_so" 2>/dev/null | head -1) ]]; then
     needs_gpu_build=1
 fi
 

@@ -1046,29 +1046,29 @@ void TextureCache::GarbageCollectImages() {
     const auto configure = [&](bool allow_aggressive) {
         pressured = total_used_memory >= pressure_gc_memory;
         aggresive = allow_aggressive && total_used_memory >= critical_gc_memory;
-        ticks_to_destroy = aggresive ? 160 : pressured ? 80 : 16;
+        ticks_to_destroy = aggresive ? 4 : (pressured ? 16 : 64);
         ticks_to_destroy = std::min(ticks_to_destroy, gc_tick);
-        num_deletions = aggresive ? 40 : pressured ? 20 : 10;
+        num_deletions = aggresive ? 128 : (pressured ? 64 : 16);
     };
     const auto clean_up = [&](ImageId image_id) {
         if (num_deletions == 0) {
             return true;
         }
-        --num_deletions;
         auto& image = slot_images[image_id];
+        if (image.binding.is_bound || image.binding.is_target) {
+            return false;
+        }
         const bool download = image.SafeToDownload();
         const bool tiled = image.info.IsTiled();
         if (tiled && download) {
-            // This is a workaround for now. We can't handle non-linear image downloads.
+            // cannot download tiled textures yet
             return false;
         }
         if (download && !pressured) {
             return false;
         }
+        --num_deletions;
         if (download) {
-            // bbport: synchronously, while the image still protects its pages. A deferred
-            // write-back landed after FreeImage had unprotected them, over whatever the game
-            // had meanwhile stored there (e.g. its heap after unloading an area).
             DownloadImageMemory(image_id, true);
             ++gc_downloads;
         }
@@ -1127,9 +1127,9 @@ void TextureCache::GarbageCollectSamplers() {
     const auto configure = [&](bool allow_aggressive) {
         pressured = total_used_samplers >= pressure_gc_samplers;
         aggresive = allow_aggressive && total_used_samplers >= critical_gc_samplers;
-        ticks_to_destroy = aggresive ? 160 : pressured ? 80 : 16;
+        ticks_to_destroy = aggresive ? 4 : (pressured ? 16 : 64);
         ticks_to_destroy = std::min(ticks_to_destroy, gc_tick);
-        num_deletions = aggresive ? 40 : pressured ? 20 : 10;
+        num_deletions = aggresive ? 40 : (pressured ? 20 : 10);
     };
     const auto clean_up = [&](u64 hash) {
         if (num_deletions == 0) {
