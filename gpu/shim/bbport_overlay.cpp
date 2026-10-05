@@ -46,9 +46,14 @@ float base_scale = 1.0f;
 std::chrono::steady_clock::time_point last_present{};
 float frame_ms_avg = 0.0f;
 
+static int rebinding_action = -1;
+
 void SetOpen(bool value) {
     if (menu_open.exchange(value) == value) {
         return;
+    }
+    if (!value) {
+        rebinding_action = -1;
     }
     ImGui::GetIO().MouseDrawCursor = value;
     SDL_Window* win = SDL_GetKeyboardFocus();
@@ -158,7 +163,9 @@ void Menu() {
     ImGui::Text("%.0f FPS  (%.1f ms)", frame_ms_avg > 0.0f ? 1000.0f / frame_ms_avg : 0.0f,
                 frame_ms_avg);
 
-    ImGui::SeparatorText("Temporal Upscaler");
+    if (ImGui::BeginTabBar("SettingsTabs")) {
+        if (ImGui::BeginTabItem("Graphics & Display")) {
+            ImGui::SeparatorText("Temporal Upscaler");
     static const char* upscalers[] = {"Off", "FSR 3.1", "FSR 4 (INT8)", "FSR 4.1.1 (INT8)",
                                      "TAA (Native AA)"};
     static const char* later[] = {"DLSS", "XeSS"};
@@ -392,10 +399,65 @@ void Menu() {
         ImGui::SameLine();
         if (ImGui::Button("144##fps")) { s.fps_limit = 144; BbSettings::Save(); }
     }
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Controls & Keyboard")) {
+            ImGui::SeparatorText("Mouse Settings");
+            float sens = s.mouse_sensitivity.load();
+            if (ImGui::SliderFloat("Mouse Sensitivity", &sens, 0.5f, 15.0f, "%.1f")) {
+                s.mouse_sensitivity = sens;
+                BbSettings::Save();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Reset##sens")) {
+                s.mouse_sensitivity = 3.5f;
+                BbSettings::Save();
+            }
+
+            ImGui::SeparatorText("Key Mappings");
+            Hint("Click any button below to rebind. Then press any keyboard key or mouse button.");
+
+            if (ImGui::Button("Reset All to Default Bindings")) {
+                BbSettings::ResetDefaultBindings();
+                BbSettings::Save();
+            }
+            ImGui::Spacing();
+
+            if (ImGui::BeginTable("KeyBindingsTable", 2, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp)) {
+                ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableSetupColumn("Assigned Key / Button", ImGuiTableColumnFlags_WidthFixed, 200.0f * base_scale);
+                ImGui::TableHeadersRow();
+
+                for (int a = 0; a < BbSettings::ActionCount; ++a) {
+                    const auto& act = BbSettings::Actions[a];
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(act.label);
+
+                    ImGui::TableNextColumn();
+                    char btn_label[128];
+                    if (rebinding_action == act.action) {
+                        std::snprintf(btn_label, sizeof(btn_label), "[ Press key... ]##act%d", a);
+                    } else {
+                        int code = s.key_bindings[act.action].load();
+                        std::snprintf(btn_label, sizeof(btn_label), "%s##act%d", BbSettings::BindingName(code).c_str(), a);
+                    }
+                    if (ImGui::Button(btn_label, ImVec2(-1.0f, 0.0f))) {
+                        rebinding_action = (rebinding_action == act.action) ? -1 : act.action;
+                    }
+                }
+                ImGui::EndTable();
+            }
+
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
 
     ImGui::Spacing();
     if (ImGui::Button("Close")) {
         keep_open = false;
+        rebinding_action = -1;
     }
     ImGui::SameLine();
     ImGui::TextDisabled("Settings are saved to bbport.ini");
@@ -517,11 +579,21 @@ bool HandleEvent(const SDL_Event& event) {
         const bool down = event.type == SDL_EVENT_KEY_DOWN;
         if (down && !event.key.repeat &&
             (event.key.key == SDLK_INSERT || (is_open && event.key.key == SDLK_ESCAPE))) {
+            if (is_open && rebinding_action >= 0 && event.key.key == SDLK_ESCAPE) {
+                rebinding_action = -1;
+                return true;
+            }
             SetOpen(event.key.key == SDLK_INSERT ? !is_open : false);
             return true;
         }
         if (!is_open) {
             return false;
+        }
+        if (down && rebinding_action >= 0) {
+            BbSettings::Get().key_bindings[rebinding_action] = (int)event.key.scancode;
+            BbSettings::Save();
+            rebinding_action = -1;
+            return true;
         }
         io.AddKeyEvent(ImGuiMod_Ctrl, (event.key.mod & SDL_KMOD_CTRL) != 0);
         io.AddKeyEvent(ImGuiMod_Shift, (event.key.mod & SDL_KMOD_SHIFT) != 0);
@@ -573,6 +645,23 @@ bool HandleEvent(const SDL_Event& event) {
     case SDL_EVENT_MOUSE_BUTTON_UP: {
         if (!is_open) {
             return false;
+        }
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && rebinding_action >= 0) {
+            int code = 0;
+            switch (event.button.button) {
+            case SDL_BUTTON_LEFT: code = BB_MOUSE_LEFT; break;
+            case SDL_BUTTON_RIGHT: code = BB_MOUSE_RIGHT; break;
+            case SDL_BUTTON_MIDDLE: code = BB_MOUSE_MIDDLE; break;
+            case SDL_BUTTON_X1: code = BB_MOUSE_X1; break;
+            case SDL_BUTTON_X2: code = BB_MOUSE_X2; break;
+            default: break;
+            }
+            if (code != 0) {
+                BbSettings::Get().key_bindings[rebinding_action] = code;
+                BbSettings::Save();
+                rebinding_action = -1;
+                return true;
+            }
         }
         const int button = event.button.button == SDL_BUTTON_LEFT    ? 0
                            : event.button.button == SDL_BUTTON_RIGHT  ? 1

@@ -93,6 +93,25 @@ static SDL_Gamepad *current_gamepad(void) {
     }
     return gamepad;
 }
+static inline bool is_action_pressed(const bool *k, int numkeys, SDL_MouseButtonFlags mb, int action) {
+    int code = bbgpu_get_input_binding(action);
+    if (code <= 0) return false;
+    if (code >= BB_MOUSE_LEFT && code <= BB_MOUSE_X2) {
+        switch (code) {
+        case BB_MOUSE_LEFT: return (mb & SDL_BUTTON_LMASK) != 0;
+        case BB_MOUSE_RIGHT: return (mb & SDL_BUTTON_RMASK) != 0;
+        case BB_MOUSE_MIDDLE: return (mb & SDL_BUTTON_MMASK) != 0;
+        case BB_MOUSE_X1: return (mb & (1 << (SDL_BUTTON_X1 - 1))) != 0;
+        case BB_MOUSE_X2: return (mb & (1 << (SDL_BUTTON_X2 - 1))) != 0;
+        default: return false;
+        }
+    }
+    if (k && code < numkeys) {
+        return k[code];
+    }
+    return false;
+}
+
 static void sample_host(PadData *d) {
     memset(d,0,sizeof(*d));
     d->left_x=d->left_y=d->right_x=d->right_y=128;
@@ -101,7 +120,8 @@ static void sample_host(PadData *d) {
     d->timestamp=now_us();
     SDL_Gamepad *g=current_gamepad();
     if (bbgpu_overlay_captures_input()) return; /* settings menu open: neutral input */
-    const bool *k=SDL_WasInit(SDL_INIT_VIDEO) ? SDL_GetKeyboardState(NULL) : NULL;
+    int numkeys = 0;
+    const bool *k=SDL_WasInit(SDL_INIT_VIDEO) ? SDL_GetKeyboardState(&numkeys) : NULL;
     if (g) {
         SDL_UpdateGamepads();
         static const struct { SDL_GamepadButton sdl; uint32_t ps; } map[]={
@@ -147,80 +167,55 @@ static void sample_host(PadData *d) {
 
     // mouse camera aiming
     if (m_dx != 0.0f || m_dy != 0.0f) {
-        float sens = 3.5f;
+        float sens = bbgpu_get_mouse_sensitivity();
         int rx = 128 + (int)(m_dx * sens);
         int ry = 128 + (int)(m_dy * sens);
         d->right_x = (uint8_t)(rx < 0 ? 0 : rx > 255 ? 255 : rx);
         d->right_y = (uint8_t)(ry < 0 ? 0 : ry > 255 ? 255 : ry);
     }
 
-    // mouse clicks
-    if (mb & SDL_BUTTON_LMASK) {
-        d->buttons |= (BTN_R1 | BTN_CROSS);
-    }
-    if (mb & SDL_BUTTON_RMASK) {
-        d->buttons |= BTN_L2;
-        d->l2 = 255;
-    }
-    if (mb & SDL_BUTTON_MMASK) {
-        d->buttons |= BTN_R3;
-    }
-    if (mb & (1 << (SDL_BUTTON_X1 - 1))) {
-        d->buttons |= BTN_L1;
-    }
-    if (mb & (1 << (SDL_BUTTON_X2 - 1))) {
+    // action bindings
+    bool fwd = is_action_pressed(k, numkeys, mb, BB_ACTION_FORWARD);
+    bool bwd = is_action_pressed(k, numkeys, mb, BB_ACTION_BACKWARD);
+    bool lft = is_action_pressed(k, numkeys, mb, BB_ACTION_LEFT);
+    bool rgt = is_action_pressed(k, numkeys, mb, BB_ACTION_RIGHT);
+    d->left_x = (uint8_t)(128 - (lft ? 128 : 0) + (rgt ? 127 : 0));
+    d->left_y = (uint8_t)(128 - (fwd ? 128 : 0) + (bwd ? 127 : 0));
+
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_INTERACT)) d->buttons |= BTN_CROSS;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_DODGE)) d->buttons |= BTN_CIRCLE;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_USE_ITEM)) d->buttons |= BTN_SQUARE;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_SWITCH_MODE)) d->buttons |= BTN_TRIANGLE;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_TRICK)) d->buttons |= BTN_L1;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_LIGHT_ATK)) d->buttons |= BTN_R1;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_HEAVY_ATK)) {
         d->buttons |= BTN_R2;
         d->r2 = 255;
     }
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_GUN)) {
+        d->buttons |= BTN_L2;
+        d->l2 = 255;
+    }
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_LOCK_ON)) d->buttons |= BTN_R3;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_GESTURE)) d->buttons |= BTN_L3;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_MENU)) d->buttons |= BTN_OPTIONS;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_UP)) d->buttons |= BTN_UP;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_DOWN)) d->buttons |= BTN_DOWN;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_DLEFT)) d->buttons |= BTN_LEFT;
+    if (is_action_pressed(k, numkeys, mb, BB_ACTION_DRIGHT)) d->buttons |= BTN_RIGHT;
 
-    if (!k) return;
-
-    // keyboard buttons mapping
-    static const struct { SDL_Scancode key; uint32_t ps; } keys[]={
-        {SDL_SCANCODE_SPACE,BTN_CIRCLE|BTN_CROSS},
-        {SDL_SCANCODE_RETURN,BTN_CROSS},
-        {SDL_SCANCODE_KP_ENTER,BTN_CROSS},
-        {SDL_SCANCODE_E,BTN_CROSS},
-        {SDL_SCANCODE_LSHIFT,BTN_CIRCLE},
-        {SDL_SCANCODE_RSHIFT,BTN_CIRCLE},
-        {SDL_SCANCODE_ESCAPE,BTN_CIRCLE|BTN_OPTIONS},
-        {SDL_SCANCODE_BACKSPACE,BTN_CIRCLE},
-        {SDL_SCANCODE_R,BTN_SQUARE},
-        {SDL_SCANCODE_F,BTN_TRIANGLE},
-        {SDL_SCANCODE_Q,BTN_L1},
-        {SDL_SCANCODE_TAB,BTN_OPTIONS},
-        {SDL_SCANCODE_P,BTN_OPTIONS},
-        {SDL_SCANCODE_C,BTN_R3},
-        {SDL_SCANCODE_Z,BTN_L3},
-        {SDL_SCANCODE_UP,BTN_UP},
-        {SDL_SCANCODE_DOWN,BTN_DOWN},
-        {SDL_SCANCODE_LEFT,BTN_LEFT},
-        {SDL_SCANCODE_RIGHT,BTN_RIGHT},
-        {SDL_SCANCODE_I,BTN_UP},
-        {SDL_SCANCODE_K,BTN_DOWN},
-        {SDL_SCANCODE_J,BTN_LEFT},
-        {SDL_SCANCODE_L,BTN_RIGHT},
-        {SDL_SCANCODE_1,BTN_LEFT},
-        {SDL_SCANCODE_2,BTN_RIGHT},
-        {SDL_SCANCODE_3,BTN_UP},
-        {SDL_SCANCODE_4,BTN_DOWN},
-    };
-    for (size_t i=0;i<sizeof(keys)/sizeof(*keys);++i) if (k[keys[i].key]) d->buttons|=keys[i].ps;
-    if (k[SDL_SCANCODE_T]) touch_click(d,0);
-    if (k[SDL_SCANCODE_Y]) touch_click(d,1);
-    if (d->buttons & BTN_L2) d->l2=255;
-    if (d->buttons & BTN_R2) d->r2=255;
-
-    // wasd left analog stick
-    d->left_x=(uint8_t)(128-(k[SDL_SCANCODE_A] ? 128 : 0)+(k[SDL_SCANCODE_D] ? 127 : 0));
-    d->left_y=(uint8_t)(128-(k[SDL_SCANCODE_W] ? 128 : 0)+(k[SDL_SCANCODE_S] ? 127 : 0));
+    // fallbacks
+    if (k && numkeys > SDL_SCANCODE_KP_ENTER && (k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_KP_ENTER])) d->buttons |= BTN_CROSS;
+    if (k && numkeys > SDL_SCANCODE_ESCAPE && k[SDL_SCANCODE_ESCAPE]) d->buttons |= (BTN_CIRCLE | BTN_OPTIONS);
+    if (k && numkeys > SDL_SCANCODE_T && k[SDL_SCANCODE_T]) touch_click(d, 0);
+    if (k && numkeys > SDL_SCANCODE_Y && k[SDL_SCANCODE_Y]) touch_click(d, 1);
 
     // arrow keys camera fallback if mouse not moved
-    if (m_dx == 0.0f && m_dy == 0.0f) {
-        if (k[SDL_SCANCODE_LEFT] && !k[SDL_SCANCODE_RIGHT]) d->right_x = 0;
-        else if (k[SDL_SCANCODE_RIGHT] && !k[SDL_SCANCODE_LEFT]) d->right_x = 255;
-        if (k[SDL_SCANCODE_UP] && !k[SDL_SCANCODE_DOWN]) d->right_y = 0;
-        else if (k[SDL_SCANCODE_DOWN] && !k[SDL_SCANCODE_UP]) d->right_y = 255;
+    if (m_dx == 0.0f && m_dy == 0.0f && k) {
+        if (numkeys > SDL_SCANCODE_RIGHT && k[SDL_SCANCODE_LEFT] && !k[SDL_SCANCODE_RIGHT]) d->right_x = 0;
+        else if (numkeys > SDL_SCANCODE_RIGHT && k[SDL_SCANCODE_RIGHT] && !k[SDL_SCANCODE_LEFT]) d->right_x = 255;
+        if (numkeys > SDL_SCANCODE_DOWN && k[SDL_SCANCODE_UP] && !k[SDL_SCANCODE_DOWN]) d->right_y = 0;
+        else if (numkeys > SDL_SCANCODE_DOWN && k[SDL_SCANCODE_DOWN] && !k[SDL_SCANCODE_UP]) d->right_y = 255;
     }
 }
 

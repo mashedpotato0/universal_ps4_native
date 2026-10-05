@@ -7,6 +7,7 @@
 #include <cstring>
 #include <string>
 #include <string_view>
+#include <SDL3/SDL.h>
 
 namespace BbSettings {
 
@@ -70,10 +71,23 @@ void Set(Values& v, const std::string& key, const std::string& value) {
                 v.output_res = r;
             }
         }
+    } else if (key == "mouse_sensitivity") {
+        v.mouse_sensitivity = Clamp(f, 0.5f, 20.0f);
     } else {
-        for (int e = 0; e < EffectCount; ++e) {
-            if (key == Effects[e].key) {
-                v.effects[e] = i != 0;
+        bool handled = false;
+        for (int a = 0; a < ActionCount; ++a) {
+            if (key == Actions[a].key) {
+                int code = BindingFromName(value);
+                if (code > 0) v.key_bindings[Actions[a].action] = code;
+                handled = true;
+                break;
+            }
+        }
+        if (!handled) {
+            for (int e = 0; e < EffectCount; ++e) {
+                if (key == Effects[e].key) {
+                    v.effects[e] = i != 0;
+                }
             }
         }
     }
@@ -88,6 +102,7 @@ Values& Get() {
 
 void Load() {
     auto& v = Get();
+    ResetDefaultBindings();
     for (int e = 0; e < EffectCount; ++e) {
         v.effects[e] = Effects[e].default_on;
     }
@@ -207,6 +222,11 @@ void Save() {
     std::fprintf(file, "model_lod=%d\noutput_res=%dx%d\n", v.model_lod.load(),
                  OutputWidths[v.output_res], OutputHeights[v.output_res]);
     std::fprintf(file, "uncap_fps=%d\nfps_limit=%d\n", int(v.uncap_fps.load()), v.fps_limit.load());
+    std::fprintf(file, "mouse_sensitivity=%.2f\n", v.mouse_sensitivity.load());
+    for (int a = 0; a < ActionCount; ++a) {
+        std::fprintf(file, "%s=%s\n", Actions[a].key,
+                     BindingName(v.key_bindings[Actions[a].action].load()).c_str());
+    }
     // Read by run.sh at start.
     std::fprintf(file, "live_resolution=%s\n", v.live_resolution < 0 ? "auto"
                                                   : v.live_resolution ? "1" : "0");
@@ -229,4 +249,44 @@ const char* UpscalerName(int upscaler) {
     return names[std::clamp(upscaler, 0, UpscalerCount - 1)];
 }
 
+std::string BindingName(int code) {
+    if (code == BB_MOUSE_LEFT) return "Mouse Left";
+    if (code == BB_MOUSE_RIGHT) return "Mouse Right";
+    if (code == BB_MOUSE_MIDDLE) return "Mouse Middle";
+    if (code == BB_MOUSE_X1) return "Mouse 4";
+    if (code == BB_MOUSE_X2) return "Mouse 5";
+    if (code > 0 && code < 512) {
+        const char* name = SDL_GetScancodeName((SDL_Scancode)code);
+        if (name && name[0]) return name;
+    }
+    return "None";
+}
+
+int BindingFromName(const std::string& name) {
+    if (name == "Mouse Left" || name == "LMB") return BB_MOUSE_LEFT;
+    if (name == "Mouse Right" || name == "RMB") return BB_MOUSE_RIGHT;
+    if (name == "Mouse Middle" || name == "MMB") return BB_MOUSE_MIDDLE;
+    if (name == "Mouse 4" || name == "Mouse X1") return BB_MOUSE_X1;
+    if (name == "Mouse 5" || name == "Mouse X2") return BB_MOUSE_X2;
+    SDL_Scancode sc = SDL_GetScancodeFromName(name.c_str());
+    return sc != SDL_SCANCODE_UNKNOWN ? sc : 0;
+}
+
+void ResetDefaultBindings() {
+    auto& v = Get();
+    v.mouse_sensitivity = 3.5f;
+    for (int a = 0; a < ActionCount; ++a) {
+        v.key_bindings[Actions[a].action] = Actions[a].default_code;
+    }
+}
+
 } // namespace BbSettings
+
+extern "C" float bbgpu_get_mouse_sensitivity(void) {
+    return BbSettings::Get().mouse_sensitivity.load();
+}
+
+extern "C" int32_t bbgpu_get_input_binding(int32_t action) {
+    if (action < 0 || action >= BB_ACTION_COUNT) return 0;
+    return BbSettings::Get().key_bindings[action].load();
+}

@@ -32,6 +32,41 @@ int bbgpu_text_input_poll(char *out_utf8, uint64_t size);
 int bbgpu_overlay_captures_input(void);
 /* Number of symbols registered by the vendored libraries (diagnostics). */
 unsigned bbgpu_symbol_count(void);
+
+enum BbAction {
+    BB_ACTION_FORWARD = 0,
+    BB_ACTION_BACKWARD,
+    BB_ACTION_LEFT,
+    BB_ACTION_RIGHT,
+    BB_ACTION_INTERACT,
+    BB_ACTION_DODGE,
+    BB_ACTION_USE_ITEM,
+    BB_ACTION_SWITCH_MODE,
+    BB_ACTION_TRICK,
+    BB_ACTION_LIGHT_ATK,
+    BB_ACTION_HEAVY_ATK,
+    BB_ACTION_GUN,
+    BB_ACTION_LOCK_ON,
+    BB_ACTION_GESTURE,
+    BB_ACTION_MENU,
+    BB_ACTION_UP,
+    BB_ACTION_DOWN,
+    BB_ACTION_DLEFT,
+    BB_ACTION_DRIGHT,
+    BB_ACTION_COUNT
+};
+
+#define BB_MOUSE_BASE 1000
+#define BB_MOUSE_LEFT 1001
+#define BB_MOUSE_RIGHT 1002
+#define BB_MOUSE_MIDDLE 1003
+#define BB_MOUSE_X1 1004
+#define BB_MOUSE_X2 1005
+
+/* input settings */
+float bbgpu_get_mouse_sensitivity(void);
+int32_t bbgpu_get_input_binding(int32_t action);
+
 #ifdef __cplusplus
 }
 #endif

@@ -6,6 +6,9 @@
 #pragma once
 
 #include <atomic>
+#include <string>
+#include <SDL3/SDL_scancode.h>
+#include "../bbgpu.h"
 
 namespace BbSettings {
 
@@ -44,6 +47,40 @@ inline constexpr int OutputHeights[] = {720, 1080, 1440, 2160};
 inline constexpr int OutputCount = 4;
 inline constexpr int OutputDefault = 1; ///< 1920x1080, the game's own size
 
+struct ActionDesc {
+    int action;
+    const char* key;
+    const char* label;
+    int default_code;
+};
+
+inline constexpr ActionDesc Actions[] = {
+    {BB_ACTION_FORWARD, "key_forward", "Move Forward", SDL_SCANCODE_W},
+    {BB_ACTION_BACKWARD, "key_backward", "Move Backward", SDL_SCANCODE_S},
+    {BB_ACTION_LEFT, "key_left", "Move Left", SDL_SCANCODE_A},
+    {BB_ACTION_RIGHT, "key_right", "Move Right", SDL_SCANCODE_D},
+    {BB_ACTION_INTERACT, "key_interact", "Interact / Talk (Cross)", SDL_SCANCODE_E},
+    {BB_ACTION_DODGE, "key_dodge", "Roll / Sprint (Circle)", SDL_SCANCODE_SPACE},
+    {BB_ACTION_USE_ITEM, "key_use_item", "Use Item (Square)", SDL_SCANCODE_R},
+    {BB_ACTION_SWITCH_MODE, "key_switch_mode", "Blood Vial / Heal (Triangle)", SDL_SCANCODE_F},
+    {BB_ACTION_TRICK, "key_trick", "Transform Weapon (L1)", SDL_SCANCODE_Q},
+    {BB_ACTION_LIGHT_ATK, "key_light_atk", "Light Attack (R1)", BB_MOUSE_LEFT},
+    {BB_ACTION_HEAVY_ATK, "key_heavy_atk", "Heavy Attack (R2)", BB_MOUSE_X2},
+    {BB_ACTION_GUN, "key_gun", "Gun / Parry (L2)", BB_MOUSE_RIGHT},
+    {BB_ACTION_LOCK_ON, "key_lock_on", "Lock-On Target (R3)", BB_MOUSE_MIDDLE},
+    {BB_ACTION_GESTURE, "key_gesture", "Jump / Gesture (L3)", SDL_SCANCODE_Z},
+    {BB_ACTION_MENU, "key_menu", "Game Menu (Options)", SDL_SCANCODE_TAB},
+    {BB_ACTION_UP, "key_up", "D-Pad Up", SDL_SCANCODE_UP},
+    {BB_ACTION_DOWN, "key_down", "D-Pad Down", SDL_SCANCODE_DOWN},
+    {BB_ACTION_DLEFT, "key_dleft", "D-Pad Left", SDL_SCANCODE_LEFT},
+    {BB_ACTION_DRIGHT, "key_dright", "D-Pad Right", SDL_SCANCODE_RIGHT},
+};
+inline constexpr int ActionCount = int(sizeof(Actions) / sizeof(Actions[0]));
+
+std::string BindingName(int code);
+int BindingFromName(const std::string& name);
+void ResetDefaultBindings();
+
 struct Values {
     std::atomic<int> upscaler{UpscalerFsr3};
     std::atomic<int> preset{NativeAA};
@@ -59,6 +96,8 @@ struct Values {
     std::atomic<bool> show_fps{false};
     std::atomic<bool> uncap_fps{true};
     std::atomic<int> fps_limit{0};
+    std::atomic<float> mouse_sensitivity{3.5f};
+    std::atomic<int32_t> key_bindings[BB_ACTION_COUNT]{};
     // FSR 4 checks (menu): the provider's auto exposure, the jitter sign it is given.
     std::atomic<bool> fsr4_auto_exposure{true};
     std::atomic<bool> fsr4_invert_jitter{false};
