@@ -152,7 +152,7 @@ fi
 
 mkdir -p "$USER_DIR"
 export SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1
-exec "$RUNTIME" "$BOOT" --app0 "$APP0" --user "$USER_DIR" "$@"
+exec "$RUNTIME" "$BOOT" --app0 "$APP0" --user "$USER_DIR" --timeout "${{TIMEOUT:-0}}" "$@"
 """
     target_path.write_text(launcher_code)
     target_path.chmod(0o755)

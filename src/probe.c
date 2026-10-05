@@ -288,7 +288,7 @@ int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--vulkan-only")) return vulkan_smoke();
     int cpu_only = 0, strict_imports = 0;
     if (getenv("PS4_PERMISSIVE")) permissive_stubs = 1;
-    unsigned timeout_seconds = 10;
+    unsigned timeout_seconds = 0;
     const char *content_profile=NULL, *app0=NULL, *user_dir=NULL, *patch_file=NULL;
     for (int i = 2; i < argc; ++i) {
         if (!strcmp(argv[i], "--cpu-only")) cpu_only = 1;
