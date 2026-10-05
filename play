@@ -94,30 +94,30 @@ def main():
     parser = argparse.ArgumentParser(
         description="Universal One-Click PS4 Native Game Launcher"
     )
-    parser.add_argument("target", nargs="?", default=None, help="path to game folder, .pkg, or pkg directory")
+    parser.add_argument("targets", nargs="*", default=[], help="path(s) to game folder, .pkg file(s), or pkg directory")
     parser.add_argument("--cpu-only", action="store_true", help="run without vulkan gpu window")
     parser.add_argument("--permissive", action="store_true", help="stub unhandled imports with 0")
     parser.add_argument("--timeout", type=int, default=0, help="timeout in seconds")
     parser.add_argument("--rebuild", action="store_true", help="force recompilation")
+    parser.add_argument("--no-launch", action="store_true", help="build executable without launching")
 
     args, unknown = parser.parse_known_args()
 
     cli_script = BIN / "ps4-native"
 
-    target_path = None
-    if args.target:
-        target_path = Path(args.target)
+    target_paths = []
+    if args.targets:
+        target_paths = [str(t) for t in args.targets]
     else:
         games = discover_available_games()
         if not games:
             print("no ps4 games found automatically")
-            print("place a .pkg in ./pkg or extract a game to ./extracted, or run:")
-            print("  ./play /path/to/game_or_pkg")
+            print("provide game path(s): ./run.sh /path/to/pkg-dir or ./run.sh /path/to/pkg1 /path/to/pkg2")
             sys.exit(1)
         elif len(games) == 1:
             selected = games[0]
             print(f"auto-detected game: {selected['title']} ({selected['title_id']}) [{selected['status']}]")
-            target_path = selected["path"]
+            target_paths = [str(selected["path"])]
         else:
             print("\n--- available ps4 games ---")
             for idx, g in enumerate(games, 1):
@@ -127,16 +127,15 @@ def main():
                 choice_idx = int(choice) - 1 if choice else 0
                 if 0 <= choice_idx < len(games):
                     selected = games[choice_idx]
-                    target_path = selected["path"]
                 else:
                     selected = games[0]
-                    target_path = selected["path"]
+                target_paths = [str(selected["path"])]
             except (ValueError, EOFError, KeyboardInterrupt):
                 selected = games[0]
-                target_path = selected["path"]
+                target_paths = [str(selected["path"])]
 
     # execute runner cli
-    cmd = [sys.executable, str(cli_script), "run", str(target_path)]
+    cmd = [sys.executable, str(cli_script), "run"] + target_paths
     if args.cpu_only:
         cmd.append("--cpu-only")
     if args.permissive:
@@ -145,6 +144,8 @@ def main():
         cmd.extend(["--timeout", str(args.timeout)])
     if args.rebuild:
         cmd.append("--rebuild")
+    if args.no_launch:
+        cmd.append("--no-launch")
     cmd.extend(unknown)
 
     sys.exit(subprocess.run(cmd).returncode)

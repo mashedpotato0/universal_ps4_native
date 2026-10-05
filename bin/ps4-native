@@ -157,7 +157,11 @@ exec "$RUNTIME" "$BOOT" --app0 "$APP0" --user "$USER_DIR" "$@"
     target_path.write_text(launcher_code)
     target_path.chmod(0o755)
     rel_path = f"./{target_path.relative_to(ROOT)}" if target_path.is_relative_to(ROOT) else str(target_path)
-    print(f"standalone executable created: {rel_path}")
+    print("\n" + "=" * 60)
+    print(f"game executable created: {rel_path}")
+    print(f"full path: {target_path.resolve()}")
+    print(f"to play anytime run: {rel_path}")
+    print("=" * 60 + "\n")
 
 
 def create_desktop_entry(game_dir: Path, slug: str = None, title: str = None):
@@ -228,13 +232,19 @@ def compile_game(game_dir: Path, out_dir: Path = OUT, app_out: Path = None):
     return boot_bin
 
 
-def resolve_game_dir(target: Path, rebuild: bool = False) -> Path:
-    # resolve game directory from path pkg or folder of pkgs
-    if target.is_dir() and (target / "eboot.bin").exists():
-        return target
+def resolve_game_dir(targets, rebuild: bool = False) -> Path:
+    # resolve game directory from single path pkg list or folder
+    if isinstance(targets, (str, Path)):
+        targets = [Path(targets)]
+    else:
+        targets = [Path(t) for t in targets]
 
-    # scan for pkgs if target is pkg or directory
-    pkgs = pkg.scan_pkgs(target)
+    # check if single target is already extracted directory
+    if len(targets) == 1 and targets[0].is_dir() and (targets[0] / "eboot.bin").exists():
+        return targets[0]
+
+    # scan for pkgs across provided targets
+    pkgs = pkg.scan_pkgs(targets)
     if pkgs:
         # get title id
         title_id = "unknown_game"
@@ -242,27 +252,52 @@ def resolve_game_dir(target: Path, rebuild: bool = False) -> Path:
             if item.get("title_id") and item["title_id"] != "Unknown":
                 title_id = item["title_id"]
                 break
+
+        # check if game is already extracted locally or in parent
+        candidates = [
+            ROOT / "extracted" / title_id,
+            ROOT.parent / title_id,
+        ]
+        for cand in candidates:
+            if cand.exists() and (cand / "eboot.bin").exists() and not rebuild:
+                return cand
+
         dest = ROOT / "extracted" / title_id
         if not (dest / "eboot.bin").exists() or rebuild:
-            print(f"target requires extraction to {dest}")
+            print(f"extracting packages into {dest}...")
             pkg.extract_pkgs(pkgs, dest)
         return dest
 
-    raise FileNotFoundError(f"could not find game binary or valid pkgs in {target}")
+    # error if single folder given without eboot or pkgs
+    if len(targets) == 1 and targets[0].exists():
+        raise FileNotFoundError(f"no eboot.bin or valid .pkg files found in {targets[0]}")
+
+    raise FileNotFoundError(f"could not resolve valid game from {targets}")
 
 
-def run_game(target: Path, args, unknown_args):
+def run_game(targets, args, unknown_args):
     # build runtime if not built
     runtime_bin = OUT / "ps4-runtime"
     if not runtime_bin.exists():
         print("runtime binary missing; running build.sh...")
         run_cmd(["bash", str(ROOT / "build.sh")])
 
-    game_dir = resolve_game_dir(target, args.rebuild)
+    game_dir = resolve_game_dir(targets, args.rebuild)
+
+    sfo = read_sfo(game_dir)
+    title = sfo.get("TITLE", "")
+    title_id = sfo.get("TITLE_ID", "")
+    slug = slugify_title(title, title_id)
+    launcher_path = ROOT / slug
 
     boot_bin = OUT / "boot-linked.bin"
     if not boot_bin.exists() or args.rebuild:
-        compile_game(game_dir, OUT)
+        compile_game(game_dir, OUT, app_out=launcher_path)
+    else:
+        create_launcher_script(game_dir, launcher_path, title=title)
+
+    if getattr(args, "no_launch", False):
+        return 0
 
     cmd = [
         str(runtime_bin),
@@ -295,7 +330,7 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     # extract
-    p_ext = sub.add_parser("extract", help="extract a ps4 .pkg file, multiple files, or directory of pkgs")
+    p_ext = sub.add_parser("extract", help="extract ps4 .pkg file(s) or directory of pkgs")
     p_ext.add_argument("targets", type=Path, nargs="+", help="path(s) to .pkg file(s) or directory containing pkgs")
     p_ext.add_argument("--out", type=Path, default=None, help="output directory (defaults to extracted/<TITLE_ID>)")
 
@@ -314,13 +349,14 @@ def main():
     p_dsk.add_argument("game_dir", type=Path, help="extracted game directory")
 
     # run
-    p_run = sub.add_parser("run", help="run a ps4 game natively from folder, .pkg, or directory of pkgs")
-    p_run.add_argument("target", type=Path, help="path to game directory, .pkg, or folder of pkgs")
+    p_run = sub.add_parser("run", help="run or build a ps4 game from folder, .pkg, or multiple pkgs")
+    p_run.add_argument("targets", type=Path, nargs="+", help="path(s) to game directory, .pkg file(s), or folder of pkgs")
     p_run.add_argument("--cpu-only", action="store_true", help="run without vulkan gpu window")
     p_run.add_argument("--permissive", action="store_true", help="stub unhandled imports with 0")
     p_run.add_argument("--timeout", type=int, default=0, help="timeout in seconds (0 = unlimited)")
     p_run.add_argument("--user-dir", type=Path, default=None, help="user saves directory")
     p_run.add_argument("--rebuild", action="store_true", help="force recompile before running")
+    p_run.add_argument("--no-launch", action="store_true", help="build executable without launching")
 
     args, unknown = parser.parse_known_args()
 
@@ -333,7 +369,7 @@ def main():
     elif args.command == "desktop":
         create_desktop_entry(args.game_dir)
     elif args.command == "run":
-        code = run_game(args.target, args, unknown)
+        code = run_game(args.targets, args, unknown)
         sys.exit(code)
 
 
