@@ -110,11 +110,32 @@ def discover_available_games() -> list:
     return list(discovered.values())
 
 
+def sync_launchers(games: list = None) -> list:
+    # generate root launchers for all compiled games
+    if games is None:
+        games = discover_available_games()
+    created = []
+    for g in games:
+        if g.get("type") == "extracted":
+            tid = g["title_id"]
+            if (OUT / "games" / tid / "boot-linked.bin").exists():
+                slug = g.get("slug")
+                launcher = ROOT / slug if slug else None
+                if launcher and not launcher.exists():
+                    subprocess.run(
+                        [sys.executable, str(BIN / "ps4-native"), "run", str(g["path"]), "--no-launch"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
+                    )
+                    created.append(slug)
+    return created
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Universal One-Click PS4 Native Game Launcher"
     )
     parser.add_argument("targets", nargs="*", default=[], help="path(s) to game folder, .pkg file(s), or pkg directory")
+    parser.add_argument("--sync-launchers", action="store_true", help="generate root launcher scripts for compiled games")
     parser.add_argument("--no-cap-fps", "--uncap-fps", dest="no_cap_fps", action="store_true", default=False, help="uncap frame rate limit")
     parser.add_argument("--fps", choices=["30", "60", "90", "uncap"], default=None, help="target fps preset")
     parser.add_argument("--cpu-only", action="store_true", help="run without vulkan gpu window")
@@ -131,11 +152,22 @@ def main():
 
     cli_script = BIN / "ps4-native"
 
+    if args.sync_launchers:
+        created = sync_launchers()
+        if created:
+            print(f"generated root launchers: {', '.join(created)}")
+        else:
+            print("all root launchers up to date")
+        sys.exit(0)
+
     target_paths = []
     if args.targets:
         target_paths = [str(t) for t in args.targets]
+    elif os.environ.get("BB_GAME_DIR"):
+        target_paths = [os.environ["BB_GAME_DIR"]]
     else:
         games = discover_available_games()
+        sync_launchers(games)
         if not games:
             print("no ps4 games found automatically")
             print("provide game path(s): ./run.sh /path/to/pkg-dir or ./run.sh /path/to/pkg1 /path/to/pkg2")
@@ -148,17 +180,16 @@ def main():
             print("\n--- available ps4 games ---")
             for idx, g in enumerate(games, 1):
                 print(f"[{idx}] {g['title']} ({g['title_id']}) - {g['status']}")
-            try:
-                choice = input(f"\nselect game [1-{len(games)}] (default: 1): ").strip()
-                choice_idx = int(choice) - 1 if choice else 0
-                if 0 <= choice_idx < len(games):
-                    selected = games[choice_idx]
-                else:
-                    selected = games[0]
-                target_paths = [str(selected["path"])]
-            except (ValueError, EOFError, KeyboardInterrupt):
-                selected = games[0]
-                target_paths = [str(selected["path"])]
+            selected = games[0]
+            if sys.stdin.isatty():
+                try:
+                    choice = input(f"\nselect game [1-{len(games)}] (default: 1): ").strip()
+                    choice_idx = int(choice) - 1 if choice else 0
+                    if 0 <= choice_idx < len(games):
+                        selected = games[choice_idx]
+                except (ValueError, EOFError, KeyboardInterrupt):
+                    pass
+            target_paths = [str(selected["path"])]
 
     # execute runner cli
     cmd = [sys.executable, str(cli_script), "run"] + target_paths

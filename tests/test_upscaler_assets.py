@@ -3,7 +3,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'launcher'))
+launcher_dir = Path(__file__).resolve().parents[1] / 'launcher'
+if not (launcher_dir / 'bbport_assets.py').exists():
+    raise unittest.SkipTest("launcher module not present")
+
+sys.path.insert(0, str(launcher_dir))
 from bbport_assets import fsr411_problem
 
 

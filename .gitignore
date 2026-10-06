@@ -17,6 +17,8 @@ pgo/
 *.gcda
 *.gcno
 bloodborne
+sekiro_shadows_die_twice
+street_fighter_collection
 *.desktop
 
 # runtime logs and cache

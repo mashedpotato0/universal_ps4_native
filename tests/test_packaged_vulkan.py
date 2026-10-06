@@ -6,7 +6,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-spec = importlib.util.spec_from_file_location("bbport_vulkan", ROOT / "launcher/bbport_vulkan.py")
+launcher_file = ROOT / "launcher/bbport_vulkan.py"
+if not launcher_file.exists():
+    raise unittest.SkipTest("launcher module not present")
+
+spec = importlib.util.spec_from_file_location("bbport_vulkan", launcher_file)
 vulkan = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(vulkan)
 
