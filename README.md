@@ -2,6 +2,9 @@
 
 A universal runtime environment and compilation toolchain for executing PlayStation 4 games natively on Linux x86_64.
 
+> [!NOTE]
+> This repository is still in development. Only Bloodborne and Street Fighter 30th Anniversary Collection have been tested so far.
+
 ---
 
 ## Origin and Relation to Existing Projects
