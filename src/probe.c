@@ -130,8 +130,16 @@ static void fault(int sig, siginfo_t *info, void *context) {
     char line[512];
     Dl_info where;
     if (rip - (uintptr_t)image < 0x10000000)
-        snprintf(line, sizeof(line), "Guest fault (signal %d) at guest offset 0x%lx, address %p\n",
-                 sig, (unsigned long)(rip - (uintptr_t)image), info->si_addr);
+        snprintf(line, sizeof(line), "Guest fault (signal %d) at guest offset 0x%lx, address %p (rax=%lx rdi=%lx rsi=%lx rdx=%lx rcx=%lx rbx=%lx rbp=%lx rsp=%lx)\n",
+                 sig, (unsigned long)(rip - (uintptr_t)image), info->si_addr,
+                 (unsigned long)uc->uc_mcontext.gregs[REG_RAX],
+                 (unsigned long)uc->uc_mcontext.gregs[REG_RDI],
+                 (unsigned long)uc->uc_mcontext.gregs[REG_RSI],
+                 (unsigned long)uc->uc_mcontext.gregs[REG_RDX],
+                 (unsigned long)uc->uc_mcontext.gregs[REG_RCX],
+                 (unsigned long)uc->uc_mcontext.gregs[REG_RBX],
+                 (unsigned long)uc->uc_mcontext.gregs[REG_RBP],
+                 (unsigned long)uc->uc_mcontext.gregs[REG_RSP]);
     else if (dladdr((void *)rip, &where) && where.dli_fname)
         snprintf(line, sizeof(line), "Host fault (signal %d) in %s+0x%lx (%s), address %p\n", sig, where.dli_fname,
                  (unsigned long)(rip - (uintptr_t)where.dli_fbase), where.dli_sname ? where.dli_sname : "?", info->si_addr);

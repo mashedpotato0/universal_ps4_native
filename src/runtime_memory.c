@@ -24,7 +24,7 @@ static uint64_t pool_size_bytes(void) {
     if (!size) {
         const char *env = getenv("BB_DMEM_MB");
         uint64_t mb = env ? strtoull(env, NULL, 10) : 0;
-        if (mb < 5056 || mb > 16384) mb = 5056;
+        if (mb < 5056 || mb > 16384) mb = 8192;
         size = mb * 1024 * 1024;
     }
     return size;
@@ -243,9 +243,9 @@ static ABI uint64_t direct_size(void) { return POOL_SIZE; }
 static ABI int32_t direct_allocate(int64_t low, int64_t high, uint64_t size,
                                   uint64_t alignment, int type, int64_t *out) {
     if (!alignment) alignment = PAGE;
-    if (!out || low < 0 || high < 0 || !size || size % PAGE || !valid_alignment(alignment) || type < 0 || type > 10)
+    if (!out || low < 0 || !size || size % PAGE || !valid_alignment(alignment))
         return INVALID;
-    uint64_t end = (uint64_t)high < POOL_SIZE ? (uint64_t)high : POOL_SIZE;
+    uint64_t end = (high > low && (uint64_t)high < POOL_SIZE) ? (uint64_t)high : POOL_SIZE;
     if ((uint64_t)low >= end || size > end - (uint64_t)low) return NO_SPACE;
     write_lock();
     if (pool()) { write_unlock(); return NO_MEMORY; }
@@ -482,11 +482,11 @@ static const RuntimeExport exports[]={
 };
 uintptr_t runtime_memory_resolve(const char *name) {
     /* Direct-memory NIDs are exercised by test_runtime.c before names are loaded. */
-    if (!strcmp(name, "pO96TwzOm5E#p#J")) return (uintptr_t)direct_size;
-    if (!strcmp(name, "rTXw65xmLIA#p#J")) return (uintptr_t)direct_allocate;
-    if (!strcmp(name, "L-Q3LEjIbgA#p#J")) return (uintptr_t)direct_map;
-    if (!strcmp(name, "MBuItvba6z8#p#J")) return (uintptr_t)direct_release;
-    if (!strcmp(name, "cQke9UuBQOk#p#J")) return (uintptr_t)direct_unmap;
+    if (nid_eq(name, "pO96TwzOm5E")) return (uintptr_t)direct_size;
+    if (nid_eq(name, "rTXw65xmLIA")) return (uintptr_t)direct_allocate;
+    if (nid_eq(name, "L-Q3LEjIbgA")) return (uintptr_t)direct_map;
+    if (nid_eq(name, "MBuItvba6z8")) return (uintptr_t)direct_release;
+    if (nid_eq(name, "cQke9UuBQOk")) return (uintptr_t)direct_unmap;
     return RUNTIME_LOOKUP(exports,name);
 }
 /* Host-owned memory the guest can see (image, stacks, trampolines) lives in

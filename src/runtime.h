@@ -11,6 +11,15 @@ void runtime_restart(void);
 #endif
 #define ABI __attribute__((sysv_abi))
 typedef void (ABI *GuestCallback)(void);
+static inline int nid_eq(const char *a, const char *b) {
+    if (!a || !b) return 0;
+    while (*a && *b && *a != '#' && *b != '#') {
+        if (*a != *b) return 0;
+        a++;
+        b++;
+    }
+    return (*a == '\0' || *a == '#') && (*b == '\0' || *b == '#');
+}
 void runtime_start(uint64_t capabilities);
 uintptr_t runtime_resolve(const char *name, int is_data);
 void runtime_report(void);

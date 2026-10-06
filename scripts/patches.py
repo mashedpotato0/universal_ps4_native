@@ -265,17 +265,57 @@ def main():
         size=render_size(settings)
         if size: print(f'{size[0]}x{size[1]}')
         return
+    # inspect game title_id to ensure patch xml applies to this game
+    title_id = ""
+    sfo_path = a.game_dir / "sce_sys/param.sfo"
+    if sfo_path.is_file():
+        try:
+            import prepare
+            title_id = prepare.sfo(sfo_path.read_bytes()).get("TITLE_ID", "")
+        except Exception:
+            pass
+
+    # check if default Bloodborne xml should be used or if external matches
+    xml_matches = False
+    if a.xml and a.xml.is_file():
+        try:
+            xml_ids = {e.text.strip() for e in ET.parse(a.xml).getroot().iter('ID') if e.text}
+            if not xml_ids or (title_id and title_id in xml_ids) or (not title_id and BLOODBORNE_IDS):
+                if title_id in BLOODBORNE_IDS or not title_id:
+                    xml_matches = True
+        except Exception:
+            pass
+
+    has_external = False
+    if a.patches_dir and a.patches_dir.is_dir():
+        for p in a.patches_dir.glob("*.xml"):
+            try:
+                p_ids = {e.text.strip() for e in ET.parse(p).getroot().iter('ID') if e.text}
+                if title_id and title_id in p_ids:
+                    has_external = True
+                    break
+            except Exception:
+                pass
+
+    if not xml_matches and not has_external:
+        print(f"Patches: no patch XML matching {title_id or a.game_dir.name}; skipping patches.bin")
+        return
+
     names=FPS_PRESETS[a.fps]+[n.strip() for n in a.extra.split(';') if n.strip()]
-    try:
-        available = {m.get('Name') for m in ET.parse(a.xml).getroot().iter('Metadata') if m.get('AppVer') == a.app_version}
-        if 'FMOD Crash Fix' in available and 'FMOD Crash Fix' not in names:
-            names.append('FMOD Crash Fix')
-    except Exception:
-        pass
-    names+=[n for n in effect_patches(read_settings(a.settings)) if n not in names]
-    validate_patch_requirements(names,a.game_dir)
+    if xml_matches:
+        try:
+            available = {m.get('Name') for m in ET.parse(a.xml).getroot().iter('Metadata') if m.get('AppVer') == a.app_version}
+            if 'FMOD Crash Fix' in available and 'FMOD Crash Fix' not in names:
+                names.append('FMOD Crash Fix')
+        except Exception:
+            pass
+        names+=[n for n in effect_patches(read_settings(a.settings)) if n not in names]
+        validate_patch_requirements(names,a.game_dir)
+    else:
+        names=[]
+
     segments=eboot_segments((a.out/'eboot.elf').read_bytes())
-    writes=compile_patches(a.xml,names,a.app_version,segments)
+    writes=compile_patches(a.xml,names,a.app_version,segments) if xml_matches else []
     size=render_size(read_settings(a.settings),a.render_res) if a.render_res else None
     # The UI keeps the game's 1920x1080 coordinates even for a larger output: the port draws
     # it into the output-size image with a viewport scaled by output / 1920

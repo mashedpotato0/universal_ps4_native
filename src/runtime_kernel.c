@@ -125,6 +125,27 @@ static ABI int32_t kernel_gettimezone(GuestTimezone *tz) {
     tz->minuteswest=(int32_t)(-local.tm_gmtoff/60); tz->dsttime=0;
     return 0;
 }
+/* time conversion */
+static ABI int32_t kernel_convert_local_to_utc(int64_t local_time, int64_t reserved, int64_t *utc_time, GuestTimezone *tz, int32_t *dst) {
+    (void)reserved; (void)tz;
+    if (dst) *dst = 0;
+    if (utc_time) {
+        GuestTimezone z;
+        kernel_gettimezone(&z);
+        *utc_time = local_time + (int64_t)z.minuteswest * 60;
+    }
+    return 0;
+}
+static ABI int32_t kernel_convert_utc_to_local(int64_t utc_time, int64_t reserved, int64_t *local_time, GuestTimezone *tz, int32_t *dst) {
+    (void)reserved; (void)tz;
+    if (dst) *dst = 0;
+    if (local_time) {
+        GuestTimezone z;
+        kernel_gettimezone(&z);
+        *local_time = utc_time - (int64_t)z.minuteswest * 60;
+    }
+    return 0;
+}
 static ABI int32_t posix_gettimeofday(GuestTimeval *tv,GuestTimezone *tz) {
     struct timeval t;
     gettimeofday(&t,NULL);
@@ -269,7 +290,58 @@ static ABI int32_t posix_key_create(uint32_t *k,KeyDestructor d) { int32_t r=key
 static ABI int32_t posix_key_delete(uint32_t k) { int32_t r=key_delete(k); return r ? r&0xffff : 0; }
 static ABI int32_t posix_key_set(uint32_t k,void *v) { int32_t r=key_set(k,v); return r ? r&0xffff : 0; }
 
+/* libc and rtld thread hooks */
+static ABI int32_t set_thread_dtors(void *p) { (void)p; return 0; }
+static ABI int32_t set_thread_atexit_count(int32_t n) { (void)n; return 0; }
+static ABI int32_t set_thread_atexit_report(void *p) { (void)p; return 0; }
+static ABI int32_t rtld_thread_atexit_inc(void) { return 0; }
+static ABI int32_t rtld_thread_atexit_dec(void) { return 0; }
+
+/* sanitizer stubs */
+static ABI int32_t is_asan_enabled(void) { return 0; }
+static ABI void *get_sanitizer_malloc_replace(void *p) { (void)p; return NULL; }
+static ABI void *get_sanitizer_new_replace(void *p) { (void)p; return NULL; }
+static ABI int32_t map_sanitizer_shadow(void) { return 0; }
+
+/* hardware mode stubs */
+static ABI int32_t kernel_get_cpumode(void) { return 1; }
+static ABI int32_t kernel_is_neo_mode(void) { return 1; }
+
+/* libc heap hooks */
+static ABI int32_t libc_heap_get_trace_info(void *info) {
+    (void)info;
+    return 0;
+}
+static ABI int32_t libc_heap_set_address_range_cb(void *cb) { (void)cb; return 0; }
+static ABI void *libc_heap_mutex_calloc(size_t n, size_t s) { return calloc(n, s); }
+static ABI void libc_heap_mutex_free(void *p) { free(p); }
+static ABI int32_t libc_heap_set_trace_marker(void *m) { (void)m; return 0; }
+static ABI int32_t libc_heap_unset_trace_marker(void *m) { (void)m; return 0; }
+static ABI int32_t libc_heap_get_address_ranges(void *p) { (void)p; return 0; }
+
 static const RuntimeExport exports[]={
+    {"_sceKernelSetThreadDtors",set_thread_dtors},
+    {"_sceKernelSetThreadAtexitCount",set_thread_atexit_count},
+    {"_sceKernelSetThreadAtexitReport",set_thread_atexit_report},
+    {"_sceKernelRtldThreadAtexitIncrement",rtld_thread_atexit_inc},
+    {"_sceKernelRtldThreadAtexitDecrement",rtld_thread_atexit_dec},
+    {"sceLibcHeapGetTraceInfo",libc_heap_get_trace_info},
+    {"sceLibcHeapSetAddressRangeCallback",libc_heap_set_address_range_cb},
+    {"sceLibcHeapMutexCalloc",libc_heap_mutex_calloc},
+    {"sceLibcHeapMutexFree",libc_heap_mutex_free},
+    {"sceLibcHeapSetTraceMarker",libc_heap_set_trace_marker},
+    {"sceLibcHeapUnsetTraceMarker",libc_heap_unset_trace_marker},
+    {"sceLibcHeapGetAddressRanges",libc_heap_get_address_ranges},
+    {"sceKernelIsAddressSanitizerEnabled",is_asan_enabled},
+    {"sceKernelGetSanitizerMallocReplace",get_sanitizer_malloc_replace},
+    {"sceKernelGetSanitizerMallocReplaceExternal",get_sanitizer_malloc_replace},
+    {"sceKernelGetSanitizerNewReplace",get_sanitizer_new_replace},
+    {"sceKernelGetSanitizerNewReplaceExternal",get_sanitizer_new_replace},
+    {"sceKernelMapSanitizerShadowMemory",map_sanitizer_shadow},
+    {"sceKernelGetCpumode",kernel_get_cpumode},
+    {"sceKernelIsNeoMode",kernel_is_neo_mode},
+    {"sceKernelConvertLocaltimeToUtc",kernel_convert_local_to_utc},
+    {"sceKernelConvertUtcToLocaltime",kernel_convert_utc_to_local},
     {"sceKernelClockGettime",kernel_clock_gettime}, {"clock_gettime",posix_clock_gettime},
     {"clock_getres",posix_clock_getres},
     {"sceKernelGetProcessTime",process_time}, {"sceKernelGetProcessTimeCounter",process_time_counter},

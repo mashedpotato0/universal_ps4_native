@@ -157,7 +157,8 @@ static ABI void guard_abort(uint64_t *guard) {
     atomic_fetch_and_explicit((_Atomic uint64_t *)guard, UINT64_C(0xffffffff), memory_order_release);
 }
 static ABI __attribute__((noreturn)) void stack_fail(void) {
-    fputs("STOP: guest stack protector detected corruption\n", stderr);
+    void *ret = __builtin_return_address(0);
+    fprintf(stderr, "STOP: guest stack protector detected corruption (caller=%p, canary=0x%lx)\n", ret, (unsigned long)stack_canary);
     exit(22);
 }
 static ABI void *guest_memset(void *dst, int value, size_t size) {
@@ -183,29 +184,29 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (!(capabilities & 1)) return 0;
     if (is_data) {
         static int32_t need_libc_internal = 1; /* SDK marker variable referenced by Fios2 */
-        if (!strcmp(name, "f7uOxY9mM1U#p#J")) return (uintptr_t)&stack_canary;
-        if (!strcmp(name, "ZT4ODD2Ts9o#libSceLibcInternal")) return (uintptr_t)&need_libc_internal;
+        if (nid_eq(name, "f7uOxY9mM1U")) return (uintptr_t)&stack_canary;
+        if (nid_eq(name, "ZT4ODD2Ts9o")) return (uintptr_t)&need_libc_internal;
         return 0;
     }
-    /* Exact scoped imports for CUSA03173; the suffix identifies library/module. */
-    if (!strcmp(name, "bzQExy189ZI#q#q")) return (uintptr_t)init_env;
-    if (!strcmp(name, "8G2LB+A3rzg#q#q")) return (uintptr_t)guest_atexit;
-    if (!strcmp(name, "tsvEmnenz48#q#q")) return (uintptr_t)guest_cxa_atexit;
-    if (!strcmp(name, "uMei1W9uyNo#q#q")) return (uintptr_t)guest_libc_exit;
+    /* Scoped imports matching by NID prefix across SDK versions */
+    if (nid_eq(name, "bzQExy189ZI")) return (uintptr_t)init_env;
+    if (nid_eq(name, "8G2LB+A3rzg")) return (uintptr_t)guest_atexit;
+    if (nid_eq(name, "tsvEmnenz48")) return (uintptr_t)guest_cxa_atexit;
+    if (nid_eq(name, "uMei1W9uyNo")) return (uintptr_t)guest_libc_exit;
     /* Not imported by the current eboot, exposed for ABI tests/future use. */
-    if (!strcmp(name, "H2e8t5ScQGc#q#q")) return (uintptr_t)guest_finalize;
-    if (!strcmp(name, "3GPpjQdAMTw#q#q")) return (uintptr_t)guard_acquire;
-    if (!strcmp(name, "9rAeANT2tyE#q#q")) return (uintptr_t)guard_release;
-    if (!strcmp(name, "2emaaluWzUw#q#q")) return (uintptr_t)guard_abort;
-    if (!strcmp(name, "Ou3iL1abvng#p#J")) return (uintptr_t)stack_fail;
-    if (!strcmp(name, "8zTFvBIAIN8#q#q")) return (uintptr_t)guest_memset;
-    if (!strcmp(name, "Q3VBxCXhUHs#q#q")) return (uintptr_t)guest_memcpy;
-    if (!strcmp(name, "+P6FRGH4LfA#q#q")) return (uintptr_t)guest_memmove;
-    if (!strcmp(name, "DfivPArhucg#q#q")) return (uintptr_t)guest_memcmp;
-    if (!strcmp(name, "j4ViWNHEgww#q#q")) return (uintptr_t)guest_strlen;
-    if (!strcmp(name, "vNe1w4diLCs#p#J")) return (uintptr_t)guest_tls_get_addr;
-    if (!strcmp(name, "959qrazPIrg#p#J")) return (uintptr_t)guest_procparam;
-    if (!strcmp(name, "p5EcQeEeJAE#p#J")) return (uintptr_t)guest_set_heap_api;
+    if (nid_eq(name, "H2e8t5ScQGc")) return (uintptr_t)guest_finalize;
+    if (nid_eq(name, "3GPpjQdAMTw")) return (uintptr_t)guard_acquire;
+    if (nid_eq(name, "9rAeANT2tyE")) return (uintptr_t)guard_release;
+    if (nid_eq(name, "2emaaluWzUw")) return (uintptr_t)guard_abort;
+    if (nid_eq(name, "Ou3iL1abvng")) return (uintptr_t)stack_fail;
+    if (nid_eq(name, "8zTFvBIAIN8")) return (uintptr_t)guest_memset;
+    if (nid_eq(name, "Q3VBxCXhUHs")) return (uintptr_t)guest_memcpy;
+    if (nid_eq(name, "+P6FRGH4LfA")) return (uintptr_t)guest_memmove;
+    if (nid_eq(name, "DfivPArhucg")) return (uintptr_t)guest_memcmp;
+    if (nid_eq(name, "j4ViWNHEgww")) return (uintptr_t)guest_strlen;
+    if (nid_eq(name, "vNe1w4diLCs")) return (uintptr_t)guest_tls_get_addr;
+    if (nid_eq(name, "959qrazPIrg")) return (uintptr_t)guest_procparam;
+    if (nid_eq(name, "p5EcQeEeJAE")) return (uintptr_t)guest_set_heap_api;
     uintptr_t mutex = runtime_mutex_resolve(name);
     if (mutex) return mutex;
     uintptr_t thread = runtime_thread_resolve(name);
@@ -239,12 +240,20 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     return bbgpu_resolve(name);
 }
 static const struct { const char *nid, *symbol; } import_names[]={
-#include "import_names.inc"
+#include "import_names_full.inc"
 };
-/* Symbol name for a scoped NID, or NULL when this eboot/libc never imports it. */
+/* Symbol name for a scoped NID, using binary search on sorted 11-char NIDs */
 const char *runtime_symbol(const char *nid) {
-    for (size_t i=0;i<sizeof(import_names)/sizeof(*import_names);++i)
-        if (!strcmp(nid,import_names[i].nid)) return import_names[i].symbol;
+    if (!nid) return NULL;
+    size_t count = sizeof(import_names)/sizeof(*import_names);
+    size_t low = 0, high = count;
+    while (low < high) {
+        size_t mid = low + (high - low) / 2;
+        int cmp = strncmp(nid, import_names[mid].nid, 11);
+        if (cmp == 0) return import_names[mid].symbol;
+        if (cmp < 0) high = mid;
+        else low = mid + 1;
+    }
     return NULL;
 }
 /* Same symbol name means same contract whether imported from libkernel or

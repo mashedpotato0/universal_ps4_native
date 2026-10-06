@@ -132,23 +132,31 @@ def inspect_game(target: Path):
         print(f"  - {name}: {sym_count} symbols")
 
 
-def create_launcher_script(game_dir: Path, target_path: Path, title: str = ""):
+def create_launcher_script(game_dir: Path, target_path: Path, title: str = "", game_out: Path = None):
     # write standalone launcher executable
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    boot_bin = OUT / "boot-linked.bin"
+    sfo = read_sfo(game_dir)
+    title_id = sfo.get("TITLE_ID", game_dir.name)
+    actual_game_out = game_out or (OUT / "games" / title_id)
     launcher_code = f"""#!/usr/bin/env bash
 # native ps4 application launcher for {title or target_path.name}
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "$0")" && pwd)"
 RUNTIME="$HERE/out/ps4-runtime"
-BOOT="$HERE/out/boot-linked.bin"
-PATCHES="$HERE/out/patches.bin"
+GAME_OUT="{actual_game_out.resolve()}"
+BOOT="$GAME_OUT/boot-linked.bin"
+PATCHES="$GAME_OUT/patches.bin"
 APP0="{game_dir.resolve()}"
 USER_DIR="$HERE/user"
 
 if [[ ! -x "$RUNTIME" ]]; then
     echo "runtime missing; building..."
     bash "$HERE/build.sh"
+fi
+
+if [[ ! -f "$BOOT" ]]; then
+    echo "game binary missing; compiling {title_id}..."
+    python3 "$HERE/bin/ps4-native" compile "$APP0" --out "$GAME_OUT"
 fi
 
 mkdir -p "$USER_DIR"
@@ -158,7 +166,7 @@ export BB_NO_CAP_FPS="${{BB_NO_CAP_FPS:-1}}"
 export BB_FPS_LIMIT="${{BB_FPS_LIMIT:-0}}"
 export BB_VBLANK_HZ="${{BB_VBLANK_HZ:-0}}"
 export BB_FPS="${{BB_FPS:-uncap}}"
-export BB_DMEM_MB="${{BB_DMEM_MB:-5056}}"
+export BB_DMEM_MB="${{BB_DMEM_MB:-8192}}"
 export BB_FRAMES_AHEAD="${{BB_FRAMES_AHEAD:-1}}"
 export BB_PRESENT_MODE="${{BB_PRESENT_MODE:-Mailbox}}"
 
@@ -246,14 +254,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-CONTENT="$HERE/out/content.bin"
+CONTENT="$GAME_OUT/content.bin"
 if [[ ! -f "$CONTENT" && -f "$HERE/scripts/content_profile.py" ]]; then
-    python3 "$HERE/scripts/content_profile.py" "$APP0" --out "$HERE/out" --sku full >/dev/null 2>&1 || true
+    python3 "$HERE/scripts/content_profile.py" "$APP0" --out "$GAME_OUT" --sku full >/dev/null 2>&1 || true
 fi
 
-# compile active patches from bbport.ini
+# compile active patches from bbport.ini if applicable
 if [[ -f "$HERE/scripts/patches.py" && -d "$HERE/patches" ]]; then
-    python3 "$HERE/scripts/patches.py" --out "$HERE/out" --fps "${{BB_FPS:-uncap}}" \
+    python3 "$HERE/scripts/patches.py" --out "$GAME_OUT" --fps "${{BB_FPS:-uncap}}" \
         --settings "$BB_CONFIG" --game-dir "$APP0" --patches-dir "$HERE/patches" \
         ${{BB_RENDER_RES:+--render-res "$BB_RENDER_RES"}} ${{BB_OUTPUT_RES:+--output-res "$BB_OUTPUT_RES"}} >/dev/null 2>&1 || true
 fi
@@ -312,15 +320,20 @@ def create_desktop_entry(game_dir: Path, slug: str = None, title: str = None):
     return desktop_file
 
 
-def compile_game(game_dir: Path, out_dir: Path = OUT, app_out: Path = None, fps: str = "uncap"):
+def compile_game(game_dir: Path, out_dir: Path = None, app_out: Path = None, fps: str = "uncap"):
     # prepare eboot and link modules into native binary
-    out_dir.mkdir(parents=True, exist_ok=True)
+    sfo = read_sfo(game_dir)
+    title = sfo.get("TITLE", "")
+    title_id = sfo.get("TITLE_ID", game_dir.name)
+    actual_out = out_dir or (OUT / "games" / title_id)
+    actual_out.mkdir(parents=True, exist_ok=True)
+
     eboot = game_dir / "eboot.bin"
     if not eboot.exists():
         raise FileNotFoundError(f"eboot.bin not found in {game_dir}")
 
-    print(f"preparing native image from {eboot}...")
-    prepare.prepare(game_dir, out_dir)
+    print(f"preparing native image from {eboot} into {actual_out}...")
+    prepare.prepare(game_dir, actual_out)
 
     # find modules to link
     sce_module = game_dir / "sce_module"
@@ -331,8 +344,8 @@ def compile_game(game_dir: Path, out_dir: Path = OUT, app_out: Path = None, fps:
                 modules_to_link.append(candidate)
 
     print(f"linking modules: {modules_to_link}...")
-    link_modules.link(game_dir, out_dir, module_names=tuple(modules_to_link))
-    boot_bin = out_dir / "boot-linked.bin"
+    link_modules.link(game_dir, actual_out, module_names=tuple(modules_to_link))
+    boot_bin = actual_out / "boot-linked.bin"
     print(f"native compilation successful: {boot_bin}")
 
     # generate content profile
@@ -342,7 +355,7 @@ def compile_game(game_dir: Path, out_dir: Path = OUT, app_out: Path = None, fps:
             run_cmd([
                 sys.executable, str(content_script),
                 str(game_dir),
-                "--out", str(out_dir),
+                "--out", str(actual_out),
                 "--sku", "full",
             ])
         except Exception as e:
@@ -355,7 +368,7 @@ def compile_game(game_dir: Path, out_dir: Path = OUT, app_out: Path = None, fps:
         print(f"compiling game patches (fps preset: {fps})...")
         patch_cmd = [
             sys.executable, str(SCRIPTS / "patches.py"),
-            "--out", str(out_dir),
+            "--out", str(actual_out),
             "--fps", str(fps),
             "--game-dir", str(game_dir),
             "--patches-dir", str(patches_dir),
@@ -367,13 +380,14 @@ def compile_game(game_dir: Path, out_dir: Path = OUT, app_out: Path = None, fps:
         except Exception as e:
             print(f"warning: patch generation failed: {e}")
 
-    # automatically generate standalone title launcher
-    sfo = read_sfo(game_dir)
-    title = sfo.get("TITLE", "")
-    title_id = sfo.get("TITLE_ID", "")
+    # write launch.sh inside game output folder
+    game_launch_sh = actual_out / "launch.sh"
+    create_launcher_script(game_dir, game_launch_sh, title=title, game_out=actual_out)
+
+    # automatically generate standalone root title launcher
     slug = slugify_title(title, title_id)
     launcher_path = Path(app_out) if app_out else (ROOT / slug)
-    create_launcher_script(game_dir, launcher_path, title=title)
+    create_launcher_script(game_dir, launcher_path, title=title, game_out=actual_out)
 
     return boot_bin
 
@@ -432,18 +446,20 @@ def run_game(targets, args, unknown_args):
 
     sfo = read_sfo(game_dir)
     title = sfo.get("TITLE", "")
-    title_id = sfo.get("TITLE_ID", "")
+    title_id = sfo.get("TITLE_ID", game_dir.name)
     slug = slugify_title(title, title_id)
     launcher_path = ROOT / slug
 
     fps_preset = "uncap" if args.no_cap_fps else getattr(args, "fps", "uncap")
 
-    boot_bin = OUT / "boot-linked.bin"
-    patches_bin = OUT / "patches.bin"
-    if not boot_bin.exists() or not patches_bin.exists() or args.rebuild:
-        compile_game(game_dir, OUT, app_out=launcher_path, fps=fps_preset)
+    game_out = OUT / "games" / title_id
+    boot_bin = game_out / "boot-linked.bin"
+    patches_bin = game_out / "patches.bin"
+
+    if not boot_bin.exists() or args.rebuild:
+        compile_game(game_dir, game_out, app_out=launcher_path, fps=fps_preset)
     else:
-        create_launcher_script(game_dir, launcher_path, title=title)
+        create_launcher_script(game_dir, launcher_path, title=title, game_out=game_out)
 
     if getattr(args, "list_gpus", False):
         cap_bin = ROOT / "out/ps4-gpu-capabilities"
@@ -454,10 +470,10 @@ def run_game(targets, args, unknown_args):
     if getattr(args, "no_launch", False):
         return 0
 
-    content_bin = OUT / "content.bin"
+    content_bin = game_out / "content.bin"
     if not content_bin.exists() and (SCRIPTS / "content_profile.py").exists():
         try:
-            run_cmd([sys.executable, str(SCRIPTS / "content_profile.py"), str(game_dir), "--out", str(OUT), "--sku", "full"])
+            run_cmd([sys.executable, str(SCRIPTS / "content_profile.py"), str(game_dir), "--out", str(game_out), "--sku", "full"])
         except Exception:
             pass
 
@@ -498,7 +514,7 @@ def run_game(targets, args, unknown_args):
         except Exception:
             pass
 
-    env["BB_DMEM_MB"] = os.getenv("BB_DMEM_MB", "5056")
+    env["BB_DMEM_MB"] = os.getenv("BB_DMEM_MB", "8192")
     if args.no_cap_fps or fps_preset == "uncap":
         env["BB_NO_CAP_FPS"] = "1"
         env["BB_FPS_LIMIT"] = "0"
@@ -536,7 +552,7 @@ def run_game(targets, args, unknown_args):
     if patches_dir.exists() and (SCRIPTS / "patches.py").exists():
         patch_cmd = [
             sys.executable, str(SCRIPTS / "patches.py"),
-            "--out", str(ROOT / "out"),
+            "--out", str(game_out),
             "--fps", str(env.get("BB_FPS", "uncap")),
             "--game-dir", str(game_dir),
             "--patches-dir", str(patches_dir),
@@ -574,7 +590,7 @@ def main():
     # compile
     p_cmp = sub.add_parser("compile", help="compile/link ps4 eboot to native binary")
     p_cmp.add_argument("game_dir", type=Path, help="extracted game directory")
-    p_cmp.add_argument("--out", type=Path, default=OUT, help="output directory")
+    p_cmp.add_argument("--out", type=Path, default=None, help="output directory (defaults to out/games/<TITLE_ID>)")
     p_cmp.add_argument("--app-out", type=Path, default=None, help="standalone executable launcher path")
     p_cmp.add_argument("--no-cap-fps", "--uncap-fps", dest="no_cap_fps", action="store_true", default=True, help="uncap frame rate limit")
     p_cmp.add_argument("--fps", choices=["30", "60", "90", "uncap"], default="uncap", help="target fps preset")

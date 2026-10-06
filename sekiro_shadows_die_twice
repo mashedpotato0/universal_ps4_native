@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# native ps4 application launcher for Sekiro™: Shadows Die Twice
+set -euo pipefail
+HERE="$(cd -- "$(dirname -- "$0")" && pwd)"
+RUNTIME="$HERE/out/ps4-runtime"
+GAME_OUT="/home/mash/game/universal_ps4_native/out/games/CUSA13801"
+BOOT="$GAME_OUT/boot-linked.bin"
+PATCHES="$GAME_OUT/patches.bin"
+APP0="/home/mash/game/universal_ps4_native/extracted/CUSA13801"
+USER_DIR="$HERE/user"
+
+if [[ ! -x "$RUNTIME" ]]; then
+    echo "runtime missing; building..."
+    bash "$HERE/build.sh"
+fi
+
+if [[ ! -f "$BOOT" ]]; then
+    echo "game binary missing; compiling CUSA13801..."
+    python3 "$HERE/bin/ps4-native" compile "$APP0" --out "$GAME_OUT"
+fi
+
+mkdir -p "$USER_DIR"
+export SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1
+export BB_CONFIG="${BB_CONFIG:-$HERE/bbport.ini}"
+export BB_NO_CAP_FPS="${BB_NO_CAP_FPS:-1}"
+export BB_FPS_LIMIT="${BB_FPS_LIMIT:-0}"
+export BB_VBLANK_HZ="${BB_VBLANK_HZ:-0}"
+export BB_FPS="${BB_FPS:-uncap}"
+export BB_DMEM_MB="${BB_DMEM_MB:-8192}"
+export BB_FRAMES_AHEAD="${BB_FRAMES_AHEAD:-1}"
+export BB_PRESENT_MODE="${BB_PRESENT_MODE:-Mailbox}"
+
+# load hardware profile or run detection
+if [[ ! -f "$HERE/out/hardware_profile.env" && -f "$HERE/scripts/detect_hardware.py" ]]; then
+    python3 "$HERE/scripts/detect_hardware.py" --save-env "$HERE/out/hardware_profile.env" >/dev/null 2>&1 || true
+fi
+if [[ -f "$HERE/out/hardware_profile.env" ]]; then
+    # shellcheck disable=SC1091
+    source "$HERE/out/hardware_profile.env"
+    if [[ -z "${BB_GPU_ID:-}" && -n "${HW_DISCRETE_GPU_ID:-}" && "${HW_DISCRETE_GPU_ID}" != "-1" ]]; then
+        export BB_GPU_ID="$HW_DISCRETE_GPU_ID"
+    fi
+fi
+
+# apply resolution scaling from bbport.ini if configured
+if [[ -z ${BB_RENDER_RES:-} && -f "$BB_CONFIG" ]]; then
+    read -r scaled_render scaled_output < <(python3 "$HERE/scripts/patches.py" --print-scaled --settings "$BB_CONFIG") || true
+    if [[ -n ${scaled_output:-} ]]; then
+        export BB_RENDER_RES="$scaled_render"
+        export BB_OUTPUT_RES="$scaled_output"
+        export BB_AUTO_RENDER_RES=1
+    fi
+fi
+
+# create accessible saves shortcut in game directory
+mkdir -p "$HERE/saves" "$USER_DIR/savedata/1"
+if [[ ! -e "$HERE/saves/sekiro_shadows_die_twice" ]]; then
+    ln -sfn "../user/savedata/1" "$HERE/saves/sekiro_shadows_die_twice" 2>/dev/null || true
+fi
+
+# parse optional launcher flags
+EXTRA_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --no-cap-fps|--uncap-fps)
+            export BB_NO_CAP_FPS=1
+            export BB_FPS_LIMIT=0
+            export BB_VBLANK_HZ=0
+            shift
+            ;;
+        --fps)
+            shift
+            export BB_FPS_LIMIT="${1:-60}"
+            if [[ "$BB_FPS_LIMIT" == "uncap" ]]; then
+                export BB_NO_CAP_FPS=1
+                export BB_FPS_LIMIT=0
+                export BB_VBLANK_HZ=0
+            else
+                export BB_NO_CAP_FPS=0
+            fi
+            shift
+            ;;
+        --discrete)
+            if [[ -x "$HERE/out/ps4-gpu-capabilities" ]]; then
+                export BB_GPU_ID="$("$HERE/out/ps4-gpu-capabilities" --find-discrete)"
+            fi
+            shift
+            ;;
+        --integrated)
+            if [[ -x "$HERE/out/ps4-gpu-capabilities" ]]; then
+                export BB_GPU_ID="$("$HERE/out/ps4-gpu-capabilities" --find-integrated)"
+            fi
+            shift
+            ;;
+        --gpu)
+            shift
+            export BB_GPU_ID="${1:-0}"
+            shift
+            ;;
+        --gpu=*)
+            export BB_GPU_ID="${1#*=}"
+            shift
+            ;;
+        --list-gpus)
+            if [[ -x "$HERE/out/ps4-gpu-capabilities" ]]; then
+                "$HERE/out/ps4-gpu-capabilities" --list
+            fi
+            exit 0
+            ;;
+        *)
+            EXTRA_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+CONTENT="$GAME_OUT/content.bin"
+if [[ ! -f "$CONTENT" && -f "$HERE/scripts/content_profile.py" ]]; then
+    python3 "$HERE/scripts/content_profile.py" "$APP0" --out "$GAME_OUT" --sku full >/dev/null 2>&1 || true
+fi
+
+# compile active patches from bbport.ini if applicable
+if [[ -f "$HERE/scripts/patches.py" && -d "$HERE/patches" ]]; then
+    python3 "$HERE/scripts/patches.py" --out "$GAME_OUT" --fps "${BB_FPS:-uncap}"         --settings "$BB_CONFIG" --game-dir "$APP0" --patches-dir "$HERE/patches"         ${BB_RENDER_RES:+--render-res "$BB_RENDER_RES"} ${BB_OUTPUT_RES:+--output-res "$BB_OUTPUT_RES"} >/dev/null 2>&1 || true
+fi
+
+RUNTIME_ARGS=("$RUNTIME" "$BOOT" --app0 "$APP0" --user "$USER_DIR" --timeout "${TIMEOUT:-0}")
+if [[ -f "$CONTENT" ]]; then
+    RUNTIME_ARGS+=(--content-profile "$CONTENT")
+fi
+if [[ -f "$PATCHES" ]]; then
+    RUNTIME_ARGS+=(--patches "$PATCHES")
+fi
+
+exec "${RUNTIME_ARGS[@]}" "${EXTRA_ARGS[@]}"

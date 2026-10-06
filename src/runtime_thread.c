@@ -221,6 +221,7 @@ static void *host_start(void *p) {
     GuestThread *t=p;
     attach(t);
     set_host_name(t->name);
+    printf("Runtime: guest thread '%s' starting at entry %p (arg=%p)\n", t->name, (void *)t->entry, t->argument);
     if (!setjmp(t->exit_jump)) t->result=t->entry(t->argument);
     runtime_thread_keys_cleanup();
     pthread_mutex_lock(&lock); t->finished=1; ++exited; pthread_mutex_unlock(&lock);
@@ -251,7 +252,7 @@ static int32_t create(GuestThread **out,ThreadAttr **attr_slot,GuestEntry entry,
     if (e) { fprintf(stderr,"STOP: host pthread_create failed: %d\n",e); exit(21); }
     if (t->detached) pthread_detach(t->host);
     pthread_mutex_lock(&lock); ++created; pthread_mutex_unlock(&lock);
-    printf("Runtime: guest thread '%s' created (stack=%llu, prio=%d)\n",t->name,(unsigned long long)stack,t->attr.prio);
+    printf("Runtime: guest thread '%s' created (caller=%p, stack=%llu, prio=%d)\n",t->name,__builtin_return_address(0),(unsigned long long)stack,t->attr.prio);
     return 0;
 }
 static ABI int32_t thread_create(GuestThread **out,ThreadAttr **attr,GuestEntry entry,void *argument,const char *name) {
@@ -345,7 +346,7 @@ uintptr_t runtime_thread_resolve(const char *name) {
         {"FJrT5LuUBAU#I#J",thread_exit},
     };
     for (size_t i=0;i<sizeof(table)/sizeof(*table);++i)
-        if (!strcmp(name,table[i].nid)) return (uintptr_t)table[i].fn;
+        if (nid_eq(name,table[i].nid)) return (uintptr_t)table[i].fn;
     return 0;
 }
 void runtime_thread_report(void) {
