@@ -209,6 +209,10 @@ int VideoOutDriver::RegisterBuffers(VideoOutPort* port, s32 startIndex, void* co
     auto& group = port->groups[group_index];
     std::memcpy(&group.attrib, attribute, sizeof(BufferAttribute));
     group.is_occupied = true;
+    port->resolution.full_width = attribute->width;
+    port->resolution.full_height = attribute->height;
+    port->resolution.pane_width = attribute->width;
+    port->resolution.pane_height = attribute->height;
 
     for (u32 i = 0; i < bufferNum; i++) {
         const uintptr_t address = reinterpret_cast<uintptr_t>(addresses[i]);

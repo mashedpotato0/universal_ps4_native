@@ -29,6 +29,8 @@ export BB_FPS="${BB_FPS:-uncap}"
 export BB_DMEM_MB="${BB_DMEM_MB:-8192}"
 export BB_FRAMES_AHEAD="${BB_FRAMES_AHEAD:-1}"
 export BB_PRESENT_MODE="${BB_PRESENT_MODE:-Mailbox}"
+export BB_UPSCALER="${BB_UPSCALER:-none}"
+export BB_READBACKS="${BB_READBACKS:-2}"
 
 # load hardware profile or run detection
 if [[ ! -f "$HERE/out/hardware_profile.env" && -f "$HERE/scripts/detect_hardware.py" ]]; then
