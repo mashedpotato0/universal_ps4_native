@@ -1044,7 +1044,13 @@ void TextureCache::GarbageCollectImages() {
             return 0ULL;
         }();
         if (instance.IsIntegrated() || forced_budget) {
-            const u64 budget = forced_budget ? forced_budget : instance.GetDeviceMemoryBudgetNow();
+            u64 budget = forced_budget ? forced_budget : instance.GetDeviceMemoryBudgetNow();
+            if (instance.IsIntegrated() && instance.CanReportMemoryUsage()) {
+                const u64 driver_now = instance.GetDeviceMemoryBudgetNow();
+                if (driver_now != 0 && (budget == 0 || driver_now < budget)) {
+                    budget = driver_now;
+                }
+            }
             if (budget != 0) {
                 trigger_gc_memory = budget / 10 * 7;
                 pressure_gc_memory = budget / 100 * 85;

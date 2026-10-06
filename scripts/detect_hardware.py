@@ -56,47 +56,62 @@ def get_ram_info():
     return ram_gib
 
 
+def run_gpu_tool(gpu_bin, flag):
+    # run capability tool and return stripped stdout or empty
+    try:
+        return subprocess.check_output([str(gpu_bin), flag], stderr=subprocess.DEVNULL).decode().strip()
+    except Exception:
+        return ""
+
+
+def parse_id(text):
+    # parse signed device index with -1 meaning none
+    try:
+        return int(text.splitlines()[-1])
+    except (ValueError, IndexError):
+        return -1
+
+
 def get_gpu_info():
-    # probe gpu using ps4-gpu-capabilities tool or sysfs
+    # probe gpu using ps4-gpu-capabilities tool
     gpu_bin = ROOT / "out/ps4-gpu-capabilities"
     gpu_list = []
-    discrete_id = 0
-    integrated_id = 0
-    live_res = 1
+    discrete_id = -1
+    integrated_id = -1
+    live_res = 0
+    gpu_type = "unknown"
+    vram_mb = 0
 
     if gpu_bin.is_file() and os.access(gpu_bin, os.X_OK):
-        try:
-            out = subprocess.check_output([str(gpu_bin), "--list"], stderr=subprocess.DEVNULL).decode()
-            for line in out.strip().splitlines():
-                if line.startswith("["):
-                    gpu_list.append(line.strip())
-        except Exception:
-            pass
-
-        try:
-            disc_out = subprocess.check_output([str(gpu_bin), "--find-discrete"], stderr=subprocess.DEVNULL).decode().strip()
-            discrete_id = int(disc_out) if disc_out.isdigit() else 0
-        except Exception:
-            pass
-
-        try:
-            int_out = subprocess.check_output([str(gpu_bin), "--find-integrated"], stderr=subprocess.DEVNULL).decode().strip()
-            integrated_id = int(int_out) if int_out.isdigit() else 0
-        except Exception:
-            pass
-
-        try:
-            live_out = subprocess.check_output([str(gpu_bin), "--live-resolution"], stderr=subprocess.DEVNULL).decode().strip()
-            live_res = int(live_out.splitlines()[-1]) if live_out else 1
-        except Exception:
-            pass
+        for line in run_gpu_tool(gpu_bin, "--list").splitlines():
+            if line.startswith("["):
+                gpu_list.append(line.strip())
+        discrete_id = parse_id(run_gpu_tool(gpu_bin, "--find-discrete"))
+        integrated_id = parse_id(run_gpu_tool(gpu_bin, "--find-integrated"))
+        live_out = run_gpu_tool(gpu_bin, "--live-resolution")
+        live_res = 1 if live_out.splitlines()[-1:] == ["1"] else 0
+        best = run_gpu_tool(gpu_bin, "--best-info").split()
+        if len(best) == 2:
+            gpu_type = best[0]
+            vram_mb = int(best[1]) if best[1].isdigit() else 0
 
     return {
         "devices": gpu_list,
         "discrete_id": discrete_id,
         "integrated_id": integrated_id,
         "live_res": live_res,
+        "type": gpu_type,
+        "vram_mb": vram_mb,
     }
+
+
+def is_low_spec(gpu, ram_gib):
+    # integrated or software gpus, small vram or little system memory
+    if gpu["type"] in ("integrated", "cpu", "other"):
+        return True
+    if gpu["type"] == "discrete" and 0 < gpu["vram_mb"] < 4096:
+        return True
+    return ram_gib < 12.0
 
 
 def compute_compiler_flags(cpu, ram_gib, cc="gcc"):
@@ -149,6 +164,7 @@ def main():
     flags = compute_compiler_flags(cpu, ram, cc=args.cc)
 
     primary_gpu = gpu["devices"][0] if gpu["devices"] else "Vulkan Device (auto)"
+    low_spec = is_low_spec(gpu, ram)
 
     lines = [
         f"HW_CPU_MODEL='{cpu['model']}'",
@@ -164,6 +180,9 @@ def main():
         f"HW_DISCRETE_GPU_ID={gpu['discrete_id']}",
         f"HW_INTEGRATED_GPU_ID={gpu['integrated_id']}",
         f"HW_LIVE_RESOLUTION={gpu['live_res']}",
+        f"HW_GPU_TYPE={gpu['type']}",
+        f"HW_VRAM_MB={gpu['vram_mb']}",
+        f"HW_LOW_SPEC={1 if low_spec else 0}",
     ]
 
     if args.save_env:
@@ -180,6 +199,7 @@ def main():
         print(f"cpu:        {cpu['model']} ({cpu['threads']} threads) [{', '.join(cpu['features'])}]")
         print(f"ram:        {ram:.1f} GiB (allocated parallel jobs: {flags['jobs']})")
         print(f"gpu:        {primary_gpu}")
+        print(f"gpu class:  {gpu['type']} ({gpu['vram_mb']} MiB local), low spec profile {'on' if low_spec else 'off'}")
         print(f"compiler:   {args.cc}")
         print(f"arch:       {flags['arch_flags']}")
         print(f"cflags:     {flags['cflags']}")

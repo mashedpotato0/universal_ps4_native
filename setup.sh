@@ -8,6 +8,32 @@ echo "universal ps4 native runtime - dependency and tool setup"
 echo "=========================================================="
 
 mkdir -p tools/bin out
+if [[ ! -f bbport.ini && -f bbport.ini.example ]]; then
+    cp bbport.ini.example bbport.ini
+fi
+
+# system dependencies check
+echo "[0/4] verifying system build prerequisites..."
+missing_deps=()
+for tool in pkg-config cmake ninja gcc g++ python3; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        missing_deps+=("$tool")
+    fi
+done
+for pkg in vulkan sdl3; do
+    if command -v pkg-config >/dev/null 2>&1 && ! pkg-config --exists "$pkg" >/dev/null 2>&1; then
+        missing_deps+=("$pkg")
+    fi
+done
+if [[ ${#missing_deps[@]} -gt 0 ]]; then
+    echo "warning: some build dependencies are missing: ${missing_deps[*]}"
+    echo "to install them:"
+    echo "  debian/ubuntu: sudo apt install build-essential cmake ninja-build pkg-config libvulkan-dev libsdl3-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev python3"
+    echo "  arch linux:    sudo pacman -S base-devel cmake ninja vulkan-devel sdl3 ffmpeg python"
+    echo "  fedora:        sudo dnf install gcc-c++ cmake ninja-build pkgconf vulkan-loader-devel SDL3-devel ffmpeg-free-devel python3"
+else
+    echo "system build prerequisites found"
+fi
 
 # submodules
 echo "[1/4] checking and updating git submodules..."

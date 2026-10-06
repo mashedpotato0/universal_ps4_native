@@ -20,33 +20,8 @@ if [[ ! -f "$BOOT" ]]; then
 fi
 
 mkdir -p "$USER_DIR"
-if [[ ! -f "${BB_CONFIG:-$HERE/bbport.ini}" && -f "$HERE/bbport.ini.example" ]]; then
-    cp "$HERE/bbport.ini.example" "${BB_CONFIG:-$HERE/bbport.ini}"
-fi
-export SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1
-export BB_CONFIG="${BB_CONFIG:-$HERE/bbport.ini}"
-export BB_NO_CAP_FPS="${BB_NO_CAP_FPS:-1}"
-export BB_FPS_LIMIT="${BB_FPS_LIMIT:-0}"
-export BB_VBLANK_HZ="${BB_VBLANK_HZ:-0}"
-export BB_FPS="${BB_FPS:-uncap}"
-export BB_DMEM_MB="${BB_DMEM_MB:-8192}"
-export BB_FRAMES_AHEAD="${BB_FRAMES_AHEAD:-1}"
-export BB_PRESENT_MODE="${BB_PRESENT_MODE:-Mailbox}"
+source "$HERE/scripts/launch_env.sh"
 export BB_UPSCALER="${BB_UPSCALER:-none}"
-export BB_READBACKS="${BB_READBACKS:-1}"
-export BB_GC_BUDGET_MB="${BB_GC_BUDGET_MB:-4096}"
-
-# load hardware profile or run detection
-if [[ ! -f "$HERE/out/hardware_profile.env" && -f "$HERE/scripts/detect_hardware.py" ]]; then
-    python3 "$HERE/scripts/detect_hardware.py" --save-env "$HERE/out/hardware_profile.env" >/dev/null 2>&1 || true
-fi
-if [[ -f "$HERE/out/hardware_profile.env" ]]; then
-    # shellcheck disable=SC1091
-    source "$HERE/out/hardware_profile.env"
-    if [[ -z "${BB_GPU_ID:-}" && -n "${HW_DISCRETE_GPU_ID:-}" && "${HW_DISCRETE_GPU_ID}" != "-1" ]]; then
-        export BB_GPU_ID="$HW_DISCRETE_GPU_ID"
-    fi
-fi
 
 # apply resolution scaling from bbport.ini if configured
 if [[ -z ${BB_RENDER_RES:-} && -f "$BB_CONFIG" ]]; then
@@ -68,6 +43,19 @@ fi
 EXTRA_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --low-spec)
+            export BB_LOW_SPEC=1
+            export BB_PRESENT_MODE="Fifo"
+            export BB_FPS=60
+            export BB_FPS_LIMIT=60
+            export BB_NO_CAP_FPS=0
+            export BB_VBLANK_HZ=60
+            export BB_DMEM_MB=5056
+            export BB_GC_BUDGET_MB=0
+            export BB_UPSCALER="off"
+            export BB_READBACKS=1
+            shift
+            ;;
         --no-cap-fps|--uncap-fps)
             export BB_NO_CAP_FPS=1
             export BB_FPS_LIMIT=0

@@ -119,7 +119,7 @@ int main(int argc, char **argv) {
                 if (best < 0 || better_device(devices[i], devices[best])) best = (int)i;
             }
         }
-        printf("%d\n", best >= 0 ? best : 0);
+        printf("%d\n", best);
         free(devices);
         vkDestroyInstance(instance, NULL);
         return 0;
@@ -134,7 +134,7 @@ int main(int argc, char **argv) {
                 break;
             }
         }
-        printf("%d\n", best >= 0 ? best : 0);
+        printf("%d\n", best);
         free(devices);
         vkDestroyInstance(instance, NULL);
         return 0;
@@ -154,6 +154,18 @@ int main(int argc, char **argv) {
     } else {
         for (uint32_t i = 1; i < count; ++i)
             if (better_device(devices[i], selected)) selected = devices[i];
+    }
+    if (argc > 1 && !strcmp(argv[1], "--best-info")) {
+        /* type and local heap of the device the runtime picks */
+        VkPhysicalDeviceProperties p;
+        vkGetPhysicalDeviceProperties(selected, &p);
+        const char *t = p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? "discrete" :
+                        p.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? "integrated" :
+                        p.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU ? "cpu" : "other";
+        printf("%s %llu\n", t, (unsigned long long)(largest_local_heap(selected) >> 20));
+        free(devices);
+        vkDestroyInstance(instance, NULL);
+        return 0;
     }
     if (live_mode) {
         printf("%d\n", live_resolution_suits(selected));

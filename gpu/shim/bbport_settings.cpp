@@ -192,6 +192,11 @@ void Load() {
             Set(v, key, value);
         }
     }
+    if (const char* env = std::getenv("BB_LOW_SPEC")) {
+        if (env[0] == '1' || env[0] == 'y' || env[0] == 't') {
+            BbProfile::Configure("low_spec_mode", "1");
+        }
+    }
     if (const char* env = std::getenv("BB_NO_CAP_FPS")) {
         v.uncap_fps = (env[0] == '1' || env[0] == 'y' || env[0] == 't');
         if (v.uncap_fps) v.fps_limit = 0;
