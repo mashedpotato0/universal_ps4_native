@@ -56,4 +56,7 @@ struct ImageView {
     vk::UniqueImageView image_view;
 };
 
+// check if view type is compatible with image type
+[[nodiscard]] bool IsViewTypeCompatible(AmdGpu::ImageType view_type, AmdGpu::ImageType image_type);
+
 } // namespace VideoCore

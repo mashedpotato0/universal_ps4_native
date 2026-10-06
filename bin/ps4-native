@@ -336,12 +336,16 @@ def compile_game(game_dir: Path, out_dir: Path = None, app_out: Path = None, fps
     prepare.prepare(game_dir, actual_out)
 
     # find modules to link
-    sce_module = game_dir / "sce_module"
     modules_to_link = []
-    if sce_module.exists():
-        for candidate in ("libc.prx", "libSceFios2.prx"):
-            if (sce_module / candidate).is_file():
-                modules_to_link.append(candidate)
+    seen = set()
+    for candidate in ("libc.prx", "libSceFios2.prx"):
+        if (game_dir / "sce_module" / candidate).is_file() or (game_dir / candidate).is_file():
+            modules_to_link.append(candidate)
+            seen.add(candidate)
+    for prx in sorted(game_dir.rglob("*.prx")):
+        if prx.name not in seen:
+            modules_to_link.append(prx.name)
+            seen.add(prx.name)
 
     print(f"linking modules: {modules_to_link}...")
     link_modules.link(game_dir, actual_out, module_names=tuple(modules_to_link))

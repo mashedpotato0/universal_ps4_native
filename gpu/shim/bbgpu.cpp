@@ -3,6 +3,7 @@
 #include "bbport_overlay.h"
 #include "bbport_settings.h"
 #include "bbport_copy.h"
+#include "game_profile.h"
 #include <sys/resource.h>
 #include "bbport_toggles.h"
 #include <algorithm>
@@ -79,6 +80,7 @@ public:
         info.title = config.title ? config.title : "";
         info.sdk_ver = config.sdk_version;
         info.psf_attributes.raw = config.psf_attributes;
+        BbProfile::Initialize(info.game_serial);
     }
 };
 
@@ -206,13 +208,13 @@ static void StartProfileWriter() {
 #endif
 
 extern "C" int bbgpu_init(const BbGpuConfig* config) {
+    g_sdk_version = config->sdk_version;
+    if (config->user_dir) setenv("BB_GPU_USER_DIR", config->user_dir, 0);
+    Core::Emulator::FillElfInfo(*config);
     BbSettings::Load();
 #ifdef BB_PGO_GENERATE
     StartProfileWriter();
 #endif
-    g_sdk_version = config->sdk_version;
-    if (config->user_dir) setenv("BB_GPU_USER_DIR", config->user_dir, 0);
-    Core::Emulator::FillElfInfo(*config);
     const std::string title = config->title ? config->title : "Bloodborne";
     const s32 width = config->width, height = config->height;
     g_window_thread = std::thread([title, width, height] {

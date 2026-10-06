@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# native ps4 application launcher for Sekiro™: Shadows Die Twice
+# native ps4 application launcher for Street Fighter™ Collection
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "$0")" && pwd)"
 RUNTIME="$HERE/out/ps4-runtime"
-GAME_OUT="${GAME_OUT:-$HERE/out/games/CUSA13801}"
+GAME_OUT="${GAME_OUT:-$HERE/out/games/CUSA07997}"
 BOOT="$GAME_OUT/boot-linked.bin"
 PATCHES="$GAME_OUT/patches.bin"
-APP0="${APP0:-$HERE/extracted/CUSA13801}"
+APP0="${APP0:-$HERE/extracted/CUSA07997}"
 USER_DIR="$HERE/user"
 
 if [[ ! -x "$RUNTIME" ]]; then
@@ -15,7 +15,7 @@ if [[ ! -x "$RUNTIME" ]]; then
 fi
 
 if [[ ! -f "$BOOT" ]]; then
-    echo "game binary missing; compiling CUSA13801..."
+    echo "game binary missing; compiling CUSA07997..."
     python3 "$HERE/bin/ps4-native" compile "$APP0" --out "$GAME_OUT"
 fi
 
@@ -32,9 +32,6 @@ export BB_FPS="${BB_FPS:-uncap}"
 export BB_DMEM_MB="${BB_DMEM_MB:-8192}"
 export BB_FRAMES_AHEAD="${BB_FRAMES_AHEAD:-1}"
 export BB_PRESENT_MODE="${BB_PRESENT_MODE:-Mailbox}"
-export BB_UPSCALER="${BB_UPSCALER:-none}"
-export BB_READBACKS="${BB_READBACKS:-1}"
-export BB_GC_BUDGET_MB="${BB_GC_BUDGET_MB:-4096}"
 
 # load hardware profile or run detection
 if [[ ! -f "$HERE/out/hardware_profile.env" && -f "$HERE/scripts/detect_hardware.py" ]]; then
@@ -60,8 +57,8 @@ fi
 
 # create accessible saves shortcut in game directory
 mkdir -p "$HERE/saves" "$USER_DIR/savedata/1"
-if [[ ! -e "$HERE/saves/sekiro_shadows_die_twice" ]]; then
-    ln -sfn "../user/savedata/1" "$HERE/saves/sekiro_shadows_die_twice" 2>/dev/null || true
+if [[ ! -e "$HERE/saves/street_fighter_collection" ]]; then
+    ln -sfn "../user/savedata/1" "$HERE/saves/street_fighter_collection" 2>/dev/null || true
 fi
 
 # parse optional launcher flags

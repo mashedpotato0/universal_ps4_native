@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <xxhash.h>
+#include "game_profile.h"
 #include "video_core/renderer_vulkan/ui_composition.h"
 #include "bbport_toggles.h"
 #include "video_core/renderer_vulkan/vk_frame_capture.h"
@@ -264,7 +265,8 @@ void Rasterizer::PrepareRenderState(const GraphicsPipeline* pipeline) {
     }
     // bbport: the G-buffer pass (5+ color targets) holds the scene depth, and its constants the
     // main camera (shadow passes bind the same layout with the light's camera).
-    gbuffer_draw = camera_motion->Enabled() && std::popcount(key.mrt_mask) >= 5 && db_desc.first;
+    gbuffer_draw = BbProfile::Get().camera_motion && camera_motion->Enabled() &&
+                   std::popcount(key.mrt_mask) >= 5 && db_desc.first;
     if (gbuffer_draw) {
         camera_motion->OnGBufferPass(db_desc.first);
     }
@@ -899,13 +901,8 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset, const PreparedDraw* pre
 
     // bbport: with the draw pipeline this thread only selects the pipeline and hands the draw
     // to the recording thread (DrawRecord there); draws FilterDraw handles itself run here.
-    const bool pipelined = UseDrawPipe();
-    if (pipelined && !FilterDrawPasses() &&
-        !BbToggle::Disabled(BbToggle::PipelinedMemoryWrites)) {
-        PostDraw(nullptr, nullptr, false, 0);
-        return;
-    }
-    if (!pipelined || !FilterDrawPasses()) {
+    const bool pipelined = UseDrawPipe() && FilterDrawPasses();
+    if (!pipelined) {
         DrainDrawPipe(DrawPipe::ReasonDraw);
         FrameCapture::Poll();
         scheduler.PopPendingOperations();
@@ -1864,13 +1861,9 @@ bool Rasterizer::IsComputeMetaClear(const Pipeline* pipeline) {
         return false;
     }
 
-    // Most of the time when a metadata is updated with a shader it gets cleared. It means
-    // we can skip the whole dispatch and update the tracked state instead. Also, it is not
-    // intended to be consumed and in such rare cases (e.g. HTile introspection, CRAA) we
-    // will need its full emulation anyways.
     const auto& info = pipeline->GetStage(Shader::SwStage::Compute);
 
-    // Assume if a shader reads metadata, it is a copy shader.
+    // skip if shader reads metadata
     for (const auto& desc : info.buffers) {
         const VAddr address = desc.GetSharp(info).base_address;
         if (!desc.IsSpecial() && !desc.is_written && texture_cache.IsMeta(address)) {
@@ -1878,17 +1871,18 @@ bool Rasterizer::IsComputeMetaClear(const Pipeline* pipeline) {
         }
     }
 
-    // Metadata surfaces are tiled and thus need address calculation to be written properly.
-    // If a shader wants to encode HTILE, for example, from a depth image it will have to compute
-    // proper tile address from dispatch invocation id. This address calculation contains an xor
-    // operation so use it as a heuristic for metadata writes that are probably not clears.
-    if (!info.has_bitwise_xor) {
-        // Assume if a shader writes metadata without address calculation, it is a clear shader.
-        for (const auto& desc : info.buffers) {
-            const VAddr address = desc.GetSharp(info).base_address;
-            if (!desc.IsSpecial() && desc.is_written && texture_cache.ClearMeta(address)) {
-                // Assume all slices were updates
-                LOG_TRACE(Render_Vulkan, "Metadata update skipped");
+    const auto& profile = BbProfile::Get();
+    for (const auto& desc : info.buffers) {
+        const VAddr address = desc.GetSharp(info).base_address;
+        if (!desc.IsSpecial() && desc.is_written) {
+            auto meta_type = texture_cache.IsMeta(address);
+            if (meta_type && *meta_type == VideoCore::TextureCache::MetaType::CMask && profile.cmask_fast_clear) {
+                if (texture_cache.ClearMeta(address)) {
+                    LOG_TRACE(Render_Vulkan, "cmask clear intercepted");
+                    return true;
+                }
+            } else if (!info.has_bitwise_xor && texture_cache.ClearMeta(address)) {
+                LOG_TRACE(Render_Vulkan, "metadata update skipped");
                 return true;
             }
         }
@@ -1897,13 +1891,135 @@ bool Rasterizer::IsComputeMetaClear(const Pipeline* pipeline) {
 }
 
 bool Rasterizer::IsComputeImageCopy(const Pipeline* pipeline) {
-    /* disable heuristic compute image copy */
-    return false;
+    if (!pipeline->IsCompute()) {
+        return false;
+    }
+    if (!BbProfile::Get().compute_image_copy) {
+        return false;
+    }
+
+    // shader must have 2 bound buffers and no images
+    const auto& cs_pgm = CsRegs();
+    const auto& info = pipeline->GetStage(Shader::SwStage::Compute);
+    if (cs_pgm.num_thread_x.full != 64 || info.buffers.size() != 2 || !info.images.empty()) {
+        return false;
+    }
+
+    // one buffer must be read and other written
+    const auto& desc0 = info.buffers[0];
+    const auto& desc1 = info.buffers[1];
+    if (!desc0.is_formatted || !desc1.is_formatted || desc0.is_written == desc1.is_written) {
+        return false;
+    }
+
+    // buffers must match size and total dispatch must cover buffer size
+    const AmdGpu::Buffer buf0 = desc0.GetSharp(info);
+    const AmdGpu::Buffer buf1 = desc1.GetSharp(info);
+    const u64 total_groups = u64(cs_pgm.dim_x) * std::max<u32>(1, cs_pgm.dim_y) * std::max<u32>(1, cs_pgm.dim_z);
+    if (buf0.GetSize() != buf1.GetSize() || total_groups != (buf0.GetSize() / 256)) {
+        return false;
+    }
+
+    // find aliased images
+    const auto image0_id = texture_cache.FindImageFromRange(buf0.base_address, buf0.GetSize());
+    if (!image0_id) {
+        return false;
+    }
+    const auto image1_id =
+        texture_cache.FindImageFromRange(buf1.base_address, buf1.GetSize(), false);
+    if (!image1_id) {
+        return false;
+    }
+
+    // validate image copy
+    VideoCore::Image& image0 = texture_cache.GetImage(image0_id);
+    VideoCore::Image& image1 = texture_cache.GetImage(image1_id);
+    if (image0.info.guest_size != image1.info.guest_size ||
+        image0.info.pitch != image1.info.pitch || image0.info.guest_size != buf0.GetSize() ||
+        image0.info.num_bits != image1.info.num_bits) {
+        return false;
+    }
+
+    // copy image data
+    VideoCore::Image& src_image = desc0.is_written ? image1 : image0;
+    VideoCore::Image& dst_image = desc0.is_written ? image0 : image1;
+    runtime.CopyColorAndDepth(&src_image, &dst_image);
+    return true;
 }
 
 bool Rasterizer::IsComputeImageClear(const Pipeline* pipeline) {
-    /* disable heuristic compute image clear */
-    return false;
+    if (!pipeline->IsCompute()) {
+        return false;
+    }
+    if (!BbProfile::Get().compute_image_clear) {
+        return false;
+    }
+
+    // shader must have 2 bound buffers and no images
+    const auto& cs_pgm = CsRegs();
+    const auto& info = pipeline->GetStage(Shader::SwStage::Compute);
+    if (cs_pgm.num_thread_x.full != 64 || info.buffers.size() != 2 || !info.images.empty()) {
+        return false;
+    }
+
+    // desc0 is clear vector and desc1 is image buffer
+    const auto& desc0 = info.buffers[0];
+    const auto& desc1 = info.buffers[1];
+    if (desc0.is_formatted || !desc1.is_formatted || desc0.is_written || !desc1.is_written) {
+        return false;
+    }
+
+    // validate buffer sizes and dispatch
+    const AmdGpu::Buffer buf0 = desc0.GetSharp(info);
+    const AmdGpu::Buffer buf1 = desc1.GetSharp(info);
+    const u32 buf1_bpp = AmdGpu::NumBitsPerBlock(buf1.GetDataFmt());
+    const u64 total_groups = u64(cs_pgm.dim_x) * std::max<u32>(1, cs_pgm.dim_y) * std::max<u32>(1, cs_pgm.dim_z);
+    if (buf0.GetSize() != 16 || (total_groups * 128ULL * (buf1_bpp / 8)) != buf1.GetSize()) {
+        return false;
+    }
+
+    // ensure memory mapping is valid before dereferencing clear color
+    if (!memory->IsValidGpuMapping(buf0.base_address, 16)) {
+        return false;
+    }
+
+    // find image the buffer aliases
+    const auto image1_id =
+        texture_cache.FindImageFromRange(buf1.base_address, buf1.GetSize(), false);
+    if (!image1_id) {
+        return false;
+    }
+
+    // validate image clear
+    VideoCore::Image& image1 = texture_cache.GetImage(image1_id);
+    if (image1.info.guest_size != buf1.GetSize() || image1.info.num_bits != buf1_bpp ||
+        image1.info.props.is_depth) {
+        return false;
+    }
+
+    const auto& profile = BbProfile::Get();
+    if (profile.safe_compute_clear) {
+        // intermediate lighting and tile masks should not be intercepted as clears
+        if (image1.info.size.width < 256 || image1.info.size.height < 256) {
+            return false;
+        }
+    }
+
+    // perform image clear
+    const float* values = reinterpret_cast<float*>(buf0.base_address);
+    const vk::ClearValue clear = {
+        .color = {.float32 = std::array<float, 4>{values[0], values[1], values[2], values[3]}},
+    };
+    const VideoCore::SubresourceRange range = {
+        .base =
+            {
+                .level = 0,
+                .layer = 0,
+            },
+        .extent = image1.info.resources,
+    };
+    runtime.ClearImage(&image1, range, clear);
+    return true;
 }
 
 
@@ -2564,7 +2680,7 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
     std::pair<vk::ImageView, vk::ImageLayout> original_color{};
     const auto& regs = Regs();
     const auto& key = pipeline->GetGraphicsKey();
-    if (std::popcount(key.mrt_mask & 0x7f) >= 5 && db_desc.first &&
+    if (BbProfile::Get().scene_resolution_hack && std::popcount(key.mrt_mask & 0x7f) >= 5 && db_desc.first &&
         scene_targets->EligibleScene(texture_cache.GetImage(db_desc.first))) scene_started = true;
     // A proxy attachment cannot represent MSAA or a feedback loop that reads the
     // same image through the guest's native descriptor during this draw.

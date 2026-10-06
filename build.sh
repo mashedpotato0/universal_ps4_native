@@ -3,6 +3,9 @@ set -euo pipefail
 cd -- "$(dirname -- "$0")"
 
 mkdir -p out bin
+if [[ ! -f bbport.ini && -f bbport.ini.example ]]; then
+    cp bbport.ini.example bbport.ini
+fi
 CC=${CC:-gcc}
 CXX=${CXX:-g++}
 

@@ -126,9 +126,9 @@ static ABI int32_t kernel_gettimezone(GuestTimezone *tz) {
     return 0;
 }
 /* time conversion */
-static ABI int32_t kernel_convert_local_to_utc(int64_t local_time, int64_t reserved, int64_t *utc_time, GuestTimezone *tz, int32_t *dst) {
-    (void)reserved; (void)tz;
+static ABI int32_t kernel_convert_local_to_utc(int64_t local_time, int64_t *utc_time, GuestTimezone *tz, int32_t *dst) {
     if (dst) *dst = 0;
+    if (tz) kernel_gettimezone(tz);
     if (utc_time) {
         GuestTimezone z;
         kernel_gettimezone(&z);
@@ -136,9 +136,9 @@ static ABI int32_t kernel_convert_local_to_utc(int64_t local_time, int64_t reser
     }
     return 0;
 }
-static ABI int32_t kernel_convert_utc_to_local(int64_t utc_time, int64_t reserved, int64_t *local_time, GuestTimezone *tz, int32_t *dst) {
-    (void)reserved; (void)tz;
+static ABI int32_t kernel_convert_utc_to_local(int64_t utc_time, int64_t *local_time, GuestTimezone *tz, int32_t *dst) {
     if (dst) *dst = 0;
+    if (tz) kernel_gettimezone(tz);
     if (local_time) {
         GuestTimezone z;
         kernel_gettimezone(&z);
@@ -306,10 +306,29 @@ static ABI int32_t map_sanitizer_shadow(void) { return 0; }
 /* hardware mode stubs */
 static ABI int32_t kernel_get_cpumode(void) { return 1; }
 static ABI int32_t kernel_is_neo_mode(void) { return 1; }
+static ABI int32_t kernel_load_start_module(const char *path, size_t args, const void *argp, uint32_t flags, const void *opt, int32_t *res) {
+    (void)args; (void)argp; (void)flags; (void)opt;
+    if (res) *res = 0;
+    printf("Runtime: sceKernelLoadStartModule('%s')\n", path ? path : "null");
+    return 0x2000;
+}
+static ABI int32_t kernel_stop_unload_module(int32_t handle, size_t args, const void *argp, uint32_t flags, const void *opt, int32_t *res) {
+    (void)handle; (void)args; (void)argp; (void)flags; (void)opt;
+    if (res) *res = 0;
+    return 0;
+}
 
 /* libc heap hooks */
+static uint64_t dummy_heap_trace_mask;
+static uint64_t dummy_heap_trace_table[512];
 static ABI int32_t libc_heap_get_trace_info(void *info) {
-    (void)info;
+    if (info) {
+        uint32_t *u32 = (uint32_t *)info;
+        uint64_t **u64 = (uint64_t **)info;
+        u32[3] = 0;
+        u64[2] = &dummy_heap_trace_mask;
+        u64[3] = dummy_heap_trace_table;
+    }
     return 0;
 }
 static ABI int32_t libc_heap_set_address_range_cb(void *cb) { (void)cb; return 0; }
@@ -340,6 +359,8 @@ static const RuntimeExport exports[]={
     {"sceKernelMapSanitizerShadowMemory",map_sanitizer_shadow},
     {"sceKernelGetCpumode",kernel_get_cpumode},
     {"sceKernelIsNeoMode",kernel_is_neo_mode},
+    {"sceKernelLoadStartModule",kernel_load_start_module},
+    {"sceKernelStopUnloadModule",kernel_stop_unload_module},
     {"sceKernelConvertLocaltimeToUtc",kernel_convert_local_to_utc},
     {"sceKernelConvertUtcToLocaltime",kernel_convert_utc_to_local},
     {"sceKernelClockGettime",kernel_clock_gettime}, {"clock_gettime",posix_clock_gettime},

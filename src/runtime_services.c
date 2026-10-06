@@ -65,6 +65,8 @@ static ABI int32_t user_event(int32_t *event) {
     event[0]=0; event[1]=USER_ID; /* LOGIN */
     return 0;
 }
+static ABI int32_t user_register_cb(void *cb,void *arg) { (void)cb; (void)arg; return 0; }
+static ABI int32_t user_unregister_cb(void *cb) { (void)cb; return 0; }
 
 /* ---- SystemService ---- */
 static int language(void) { const char *v=getenv("BB_LANGUAGE"); return v ? atoi(v) : 1; }
@@ -90,6 +92,11 @@ static ABI int32_t system_status(unsigned char *status) {
 static ABI int32_t system_event(void *event) { (void)event; return SYSTEM_NO_EVENT; }
 static ABI int32_t hide_splash(void) { note("SystemService: splash screen hidden"); return 0; }
 static ABI int32_t launch_browser(void) { note("SystemService: web browser request ignored (offline)"); return 0; }
+static ABI int32_t system_safe_area(void *info) {
+    if (!info) return SYSTEM_PARAMETER;
+    *(float *)info = 1.0f;
+    return 0;
+}
 
 /* ---- NetCtl / Net / Http / Ssl: no network ---- */
 static int32_t net_errno;
@@ -290,6 +297,12 @@ static ABI int32_t trophy_game_info(int32_t ctx,int32_t handle,void *details,voi
 static ABI int32_t trophy_info(int32_t ctx,int32_t handle,int32_t id,void *details,void *data) {
     (void)id; return trophy_game_info(ctx,handle,details,data);
 }
+static ABI int32_t trophy_unlock_state(int32_t ctx,int32_t handle,void *flags,uint32_t *count) {
+    (void)ctx; (void)handle;
+    if (flags) memset(flags,0,16);
+    if (count) *count=0;
+    return 0;
+}
 
 /* ---- PlayGo: fully installed package ---- */
 static int playgo_handle, playgo_chunks=-1;
@@ -356,9 +369,12 @@ static const RuntimeExport exports[]={
     {"sceUserServiceInitialize",user_initialize}, {"sceUserServiceTerminate",user_terminate},
     {"sceUserServiceGetInitialUser",user_initial}, {"sceUserServiceGetLoginUserIdList",user_list},
     {"sceUserServiceGetUserName",user_name}, {"sceUserServiceGetEvent",user_event},
+    {"sceUserServiceRegisterEventCallback",user_register_cb},
+    {"sceUserServiceUnregisterEventCallback",user_unregister_cb},
     {"sceSystemServiceParamGetInt",system_param}, {"sceSystemServiceGetStatus",system_status},
     {"sceSystemServiceReceiveEvent",system_event}, {"sceSystemServiceHideSplashScreen",hide_splash},
     {"sceSystemServiceLaunchWebBrowser",launch_browser},
+    {"sceSystemServiceGetDisplaySafeAreaInfo",system_safe_area},
     {"sceNetInit",net_init}, {"sceNetTerm",net_term}, {"sceNetErrnoLoc",net_errno_loc},
     {"sceNetPoolCreate",net_pool_create}, {"sceNetPoolDestroy",net_pool_destroy},
     {"sceNetEpollCreate",net_epoll_create}, {"sceNetEpollDestroy",net_epoll_destroy},
@@ -373,9 +389,14 @@ static const RuntimeExport exports[]={
     {"sceNetSocketClose",net_unreachable}, {"sceNetSocketAbort",net_unreachable},
     {"sceNetEpollControl",net_unreachable}, {"sceNetEpollWait",net_unreachable}, {"sceNetEpollAbort",net_unreachable},
     {"sceNetResolverStartNtoa",net_unreachable}, {"sceNetResolverStartAton",net_unreachable},
+    {"sceNetCtlInit",net_init}, {"sceNetCtlTerm",net_term},
     {"sceNetCtlGetState",netctl_state}, {"sceNetCtlGetInfo",netctl_info},
     {"sceNetCtlRegisterCallback",netctl_register}, {"sceNetCtlCheckCallback",netctl_check},
     {"sceNetCtlUnregisterCallback",netctl_unregister}, {"sceNetCtlGetNatInfo",netctl_nat},
+    {"sceNetCtlRegisterCallbackForNpToolkit",netctl_register},
+    {"sceNetCtlUnregisterCallbackForNpToolkit",netctl_unregister},
+    {"sceNetCtlCheckCallbackForNpToolkit",netctl_check},
+    {"sceNetCtlClearEventForNpToolkit",ok_void},
     {"sceSslInit",lib_init_id}, {"sceSslTerm",ok_void},
     {"sceHttpInit",lib_init_id}, {"sceHttpTerm",ok_void},
     {"sceHttpCreateTemplate",http_object}, {"sceHttpDeleteTemplate",ok_void},
@@ -395,8 +416,13 @@ static const RuntimeExport exports[]={
     {"sceNpRegisterStateCallbackA",np_register}, {"sceNpUnregisterStateCallbackA",ok_void},
     {"sceNpRegisterGamePresenceCallback",np_register_void}, {"sceNpRegisterGamePresenceCallbackA",np_register_void},
     {"sceNpUnregisterGamePresenceCallbackA",ok_void},
+    {"sceNpRegisterStateCallbackForToolkit",np_register},
+    {"sceNpUnregisterStateCallbackForToolkit",ok_void},
+    {"sceNpCheckCallbackForLib",ok_void},
     {"sceNpRegisterPlusEventCallback",np_register},
     {"sceNpUnregisterPlusEventCallback",ok_void}, {"sceNpCheckCallback",ok_void},
+    {"sceNpRegisterNpReachabilityStateCallback",np_register},
+    {"sceNpUnregisterNpReachabilityStateCallback",ok_void},
     {"sceNpSetNpTitleId",ok_void}, {"sceNpNotifyPlusFeature",ok_void}, {"sceNpSetContentRestriction",ok_void},
     {"sceNpCreateAsyncRequest",np_request}, {"sceNpDeleteRequest",ok_void}, {"sceNpAbortRequest",ok_void},
     {"sceNpPollAsync",np_poll}, {"sceNpCheckNpAvailability",np_signed_out},
@@ -477,8 +503,14 @@ static const RuntimeExport exports[]={
     {"sceImeDialogInit",ime_init}, {"sceImeDialogGetStatus",ime_status}, {"sceImeDialogGetResult",ime_result},
     {"sceImeDialogTerm",ime_term}, {"sceImeDialogAbort",ime_term},
     {"sceNpTrophyCreateContext",trophy_context}, {"sceNpTrophyCreateHandle",trophy_handle},
+    {"sceNpTrophyDestroyHandle",ok_void}, {"sceNpTrophyDestroyContext",ok_void},
     {"sceNpTrophyRegisterContext",trophy_register}, {"sceNpTrophyUnlockTrophy",trophy_unlock},
     {"sceNpTrophyGetGameInfo",trophy_game_info}, {"sceNpTrophyGetTrophyInfo",trophy_info},
+    {"sceNpTrophyGetTrophyUnlockState",trophy_unlock_state},
+    {"sceNpTrophyGetGroupInfo",trophy_info},
+    {"sceNpTrophyAbortHandle",ok_void}, {"sceNpTrophyCaptureScreenshot",ok_void},
+    {"sceNpTrophyGetGameIcon",ok_void}, {"sceNpTrophyGetGroupIcon",ok_void},
+    {"sceNpTrophyShowTrophyList",ok_void},
     {"scePlayGoInitialize",playgo_init}, {"scePlayGoOpen",playgo_open}, {"scePlayGoGetChunkId",playgo_chunk_ids},
     {"scePlayGoGetLocus",playgo_locus}, {"scePlayGoSetInstallSpeed",playgo_speed},
     {"sceMouseInit",ok_void}, {"sceMouseOpen",mouse_open}, {"sceMouseRead",mouse_read}, {"sceMouseClose",mouse_close},

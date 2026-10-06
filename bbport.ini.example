@@ -1,0 +1,76 @@
+# universal ps4 native settings
+[General]
+upscaler=off
+preset=0
+sharpen=1
+sharpness=0.40
+jitter=1
+reactive=0
+show_fps=1
+uncap_fps=1
+fps_limit=0
+output_res=1920x1080
+mouse_sensitivity=4.80
+key_ls_up=W
+key_ls_down=S
+key_ls_left=A
+key_ls_right=D
+key_cross=E
+key_circle=Space
+key_square=R
+key_triangle=F
+key_l1=Q
+key_r1=Mouse Left
+key_l2=Mouse Right
+key_r2=Mouse 5
+key_l3=Z
+key_r3=Mouse Middle
+key_options=Tab
+key_touchpad=T
+key_dpad_up=Up
+key_dpad_down=Down
+key_dpad_left=Left
+key_dpad_right=Right
+low_spec_mode=0
+internal_res_scale=100
+vram_budget_mb=4096
+compute_image_copy=1
+compute_image_clear=1
+cmask_fast_clear=1
+
+[CUSA03173]
+# bloodborne graphics profile
+camera_motion=1
+scene_resolution_hack=1
+object_motion=1
+safe_compute_clear=0
+format_remap=0
+compute_image_copy=1
+compute_image_clear=1
+cmask_fast_clear=1
+effect_dof=1
+effect_ssao=1
+effect_game_aa=1
+effect_dynamic_shadows=0
+
+[CUSA13801]
+# sekiro shadows die twice graphics profile
+camera_motion=0
+scene_resolution_hack=0
+object_motion=0
+safe_compute_clear=1
+format_remap=1
+compute_image_copy=1
+compute_image_clear=0
+cmask_fast_clear=0
+
+[CUSA03388]
+# dark souls iii graphics profile
+camera_motion=0
+scene_resolution_hack=0
+object_motion=0
+safe_compute_clear=1
+format_remap=1
+compute_image_copy=1
+compute_image_clear=1
+cmask_fast_clear=1

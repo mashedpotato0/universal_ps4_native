@@ -362,6 +362,17 @@ static ABI int32_t pad_open(int32_t user, int32_t type, int32_t index, const voi
     puts("Runtime: pad opened for user 1 (SDL gamepad or keyboard)");
     return PAD_HANDLE;
 }
+/* get opened pad handle */
+static ABI int32_t pad_get_handle(int32_t user, int32_t type, int32_t index) {
+    if (!initialized) return ERR_NOT_INITIALIZED;
+    if (user!=1) return ERR_INVALID_ARG;
+    if (type!=0 && type!=2) return ERR_INVALID_ARG;
+    if (index) return ERR_INVALID_ARG;
+    pthread_mutex_lock(&lock);
+    opened=1;
+    pthread_mutex_unlock(&lock);
+    return PAD_HANDLE;
+}
 static ABI int32_t pad_close(int32_t handle) {
     if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
     opened=0; return 0;
@@ -408,6 +419,7 @@ static ABI int32_t pad_ok_handle_flag(int32_t handle, uint8_t flag) { (void)flag
 
 static const RuntimeExport exports[]={
     {"scePadInit",pad_init}, {"scePadOpen",pad_open}, {"scePadClose",pad_close},
+    {"scePadGetHandle",pad_get_handle},
     {"scePadReadState",pad_read_state}, {"scePadRead",pad_read},
     {"scePadGetControllerInformation",pad_info}, {"scePadSetVibration",pad_vibration},
     {"scePadResetOrientation",pad_ok_handle},

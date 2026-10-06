@@ -4,6 +4,7 @@
 #include <xxhash.h>
 
 #include "bbport_toggles.h"
+#include "shim/game_profile.h"
 #include "common/assert.h"
 #include "common/debug.h"
 #include "common/div_ceil.h"
@@ -257,6 +258,14 @@ std::tuple<ImageId, int, int> TextureCache::ResolveOverlap(const ImageInfo& imag
 
     // Equal address
     if (image_info.guest_address == cache_image.info.guest_address) {
+        // do not alias incompatible view types
+        if (!IsViewTypeCompatible(image_info.type, cache_image.info.type)) {
+            if (safe_to_delete) {
+                FreeImage(cache_image_id);
+            }
+            return {merged_image_id, -1, -1};
+        }
+
         const u32 lhs_block_size = image_info.num_bits * image_info.num_samples;
         const u32 rhs_block_size = cache_image.info.num_bits * cache_image.info.num_samples;
         if (image_info.BlockDim() != cache_image.info.BlockDim() ||
@@ -560,6 +569,7 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_fmt) {
             continue;
         }
         if (!IsVulkanFormatCompatible(cache_image.info.pixel_format, info.pixel_format) ||
+            !IsViewTypeCompatible(info.type, cache_image.info.type) ||
             (cache_image.info.type != info.type && info.size != Extent3D{1, 1, 1})) {
             continue;
         }
@@ -1022,9 +1032,16 @@ void TextureCache::GarbageCollectImages() {
         // collector evicted images used two or three frames ago on every submission and wrote
         // GPU-written ones back. Compare with the driver's current budget instead.
         // BB_GC_BUDGET_MB=N: this rule with a fixed budget on any GPU (tests on a desktop).
-        static const u64 forced_budget = [] {
+        static const u64 forced_budget = [] -> u64 {
             const char* env = std::getenv("BB_GC_BUDGET_MB");
-            return env ? std::strtoull(env, nullptr, 10) << 20 : 0;
+            if (env) {
+                return static_cast<u64>(std::strtoull(env, nullptr, 10)) << 20;
+            }
+            const auto& profile = BbProfile::Get();
+            if (profile.vram_budget_mb > 0) {
+                return static_cast<u64>(profile.vram_budget_mb) << 20;
+            }
+            return 0ULL;
         }();
         if (instance.IsIntegrated() || forced_budget) {
             const u64 budget = forced_budget ? forced_budget : instance.GetDeviceMemoryBudgetNow();

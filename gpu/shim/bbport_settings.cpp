@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "bbport_settings.h"
+#include "game_profile.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -137,19 +138,41 @@ void Load() {
     for (int e = 0; e < EffectCount; ++e) {
         v.effects[e] = Effects[e].default_on;
     }
+    const auto& profile = BbProfile::Get();
+    bool in_active_section = true;
     if (FILE* file = std::fopen(Path(), "r")) {
         char line[256];
         while (std::fgets(line, sizeof(line), file)) {
             std::string text{line};
-            text.erase(text.find_last_not_of(" \t\r\n") + 1);
-            const auto eq = text.find('=');
-            if (text.empty() || text[0] == '#' || eq == std::string::npos) {
+            const auto first = text.find_first_not_of(" \t");
+            if (first == std::string::npos || text[first] == '#') {
                 continue;
             }
-            Set(v, text.substr(0, eq), text.substr(eq + 1));
+            text.erase(0, first);
+            text.erase(text.find_last_not_of(" \t\r\n") + 1);
+            if (text.front() == '[' && text.back() == ']') {
+                std::string section = text.substr(1, text.size() - 2);
+                in_active_section = (section == "General" || section == "general" ||
+                                     section == profile.serial ||
+                                     (!profile.serial.empty() && section.find(profile.serial) != std::string::npos));
+                continue;
+            }
+            if (!in_active_section) {
+                continue;
+            }
+            const auto eq = text.find('=');
+            if (eq == std::string::npos) {
+                continue;
+            }
+            std::string key = text.substr(0, eq);
+            std::string val = text.substr(eq + 1);
+            key.erase(key.find_last_not_of(" \t") + 1);
+            val.erase(0, val.find_first_not_of(" \t"));
+            BbProfile::Configure(key, val);
+            Set(v, key, val);
         }
         std::fclose(file);
-        std::printf("Settings: %s\n", Path());
+        std::printf("Settings: %s (profile [%s])\n", Path(), profile.serial.c_str());
     }
     // Environment overrides (scripts, A/B tests).
     if (const char* env = std::getenv("BB_UPSCALER")) {

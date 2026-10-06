@@ -117,10 +117,18 @@ ImageView::ImageView(const Vulkan::Instance& instance, const ImageViewInfo& info
         aspect = vk::ImageAspectFlagBits::eStencil;
     }
 
+    auto view_type = ConvertImageViewType(info.type);
+    if (!IsViewTypeCompatible(info.type, image.info.type)) {
+        LOG_ERROR(Render_Vulkan, "image view type {} is incompatible with image type {}",
+                  magic_enum::enum_name(info.type), magic_enum::enum_name(image.info.type));
+        // fallback to compatible type so driver creation does not fail
+        view_type = ConvertImageViewType(image.info.type);
+    }
+
     const vk::ImageViewCreateInfo image_view_ci = {
         .pNext = &usage_ci,
         .image = image.GetImage(),
-        .viewType = ConvertImageViewType(info.type),
+        .viewType = view_type,
         .format = instance.GetSupportedFormat(format, image.format_features),
         .components = info.mapping,
         .subresourceRange{
@@ -131,10 +139,6 @@ ImageView::ImageView(const Vulkan::Instance& instance, const ImageViewInfo& info
             .layerCount = info.range.extent.layers,
         },
     };
-    if (!IsViewTypeCompatible(info.type, image.info.type)) {
-        LOG_ERROR(Render_Vulkan, "image view type {} is incompatible with image type {}",
-                  magic_enum::enum_name(info.type), magic_enum::enum_name(image.info.type));
-    }
 
     auto [view_result, view] = instance.GetDevice().createImageViewUnique(image_view_ci);
     ASSERT_MSG(view_result == vk::Result::eSuccess, "Failed to create image view: {}",

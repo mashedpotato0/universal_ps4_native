@@ -128,7 +128,10 @@ def link(game, out, module_names=DEFAULT_MODULES):
     fs_patched = patch_fs_loads(image, main['ph'], 0)
     tls_module = 2
     for filename in module_names:
-        m = module(game / 'sce_module' / filename)
+        mod_path = game / 'sce_module' / filename
+        if not mod_path.is_file():
+            mod_path = game / filename
+        m = module(mod_path)
         loads = [p for p in m['ph'] if p['type'] in (1, 0x61000010)]
         modsize = max(p['vaddr'] + p['memsz'] for p in loads)
         if base + modsize > 512 * 1024 * 1024:
