@@ -1,7 +1,5 @@
-"""Link the user's plaintext libc into a separate, reproducible probe image.
-
-The original boot.bin remains usable. Symbols are matched by library/module
-identity, versions and NID, not by dump-local suffix or NID alone.
+"""deprecated legacy linker for single libc module
+use link_modules.py instead for multi-module game linking
 """
 import collections
 import hashlib

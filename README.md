@@ -9,7 +9,7 @@ A universal runtime environment and compilation toolchain for executing PlayStat
 
 ## Origin and Relation to Existing Projects
 
-This project is an extension and generalization of the native PS4 port architecture demonstrated by [bbport](https://github.com/shadps4-emu/bbport) and [shadPS4](https://github.com/shadps4-emu/shadPS4).
+This codebase is a multi-title generalization derived directly from [deadinside28/bloodborne_pc](https://github.com/deadinside28/bloodborne_pc), which itself builds upon the native execution architecture created by [bbport](https://github.com/shadps4-emu/bbport) and [shadPS4](https://github.com/shadps4-emu/shadPS4).
 
 While previous efforts focused on custom-tailored environments for specific titles, **universal_ps4_native** abstracts and generalizes the native execution model into an automated, title-agnostic toolchain:
 - **Universal Package Extraction**: Automated unpacking of PS4 `.pkg` containers.
@@ -158,13 +158,13 @@ Launch the standalone binary or use the runner CLI:
 
 ## Acknowledgments & Third-Party Credits
 
-This project relies on and acknowledges numerous upstream projects, including **shadPS4**, **bbport**, **ps4-pkg-tool**, **LibAtrac9**, **FSR-Vulkan**, **Dear ImGui**, **sirit**, **Zydis**, **VMA**, **miniz**, and others.
+This project relies on and acknowledges numerous upstream projects, including **deadinside28/bloodborne_pc**, **bbport**, **shadPS4**, **ps4-pkg-tool**, **LibAtrac9**, **FSR-Vulkan**, **Dear ImGui**, **sirit**, **Zydis**, **VMA**, **miniz**, and others.
 For the complete list of licenses, contributors, and authors, see [ACKNOWLEDGMENTS.md](file:///home/mash/game/universal_ps4_native/ACKNOWLEDGMENTS.md).
 
 ---
 
 ## License
 
-This project is licensed strictly for non-commercial, educational, and research use under the **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0)**. See [LICENSE](file:///home/mash/game/universal_ps4_native/LICENSE) for the full text. Commercial use, redistribution for profit, or monetization of any derivative works is strictly prohibited.
+This project is licensed under the **GNU General Public License v2.0 (GPL-2.0-or-later)** to maintain compatibility with upstream shadPS4, bbport, and bloodborne_pc. See [LICENSE](file:///home/mash/game/universal_ps4_native/LICENSE) for the full license text.
 
 Third-party libraries retain their original licenses as detailed in [ACKNOWLEDGMENTS.md](file:///home/mash/game/universal_ps4_native/ACKNOWLEDGMENTS.md).

@@ -6,6 +6,10 @@ This project builds upon, integrates, and interfaces with numerous open-source l
 
 ### Core Architecture & Execution
 
+- **[deadinside28/bloodborne_pc](https://github.com/deadinside28/bloodborne_pc)** (GPL-2.0)  
+  *Author*: deadinside28  
+  *Contribution*: Base native port, initial execution environment, linker scripts, patch compiler, and runtime harness from which this multi-title generalized runtime is directly derived.
+
 - **[shadPS4](https://github.com/shadps4-emu/shadPS4)** & **[bbport](https://github.com/shadps4-emu/bbport)** (GPL-2.0 / MIT)  
   *Authors*: shadPS4 contributors, FireBurn, and the bbport development team  
   *Contribution*: PS4 Gnm/Gnmx Vulkan video core, GCN/RDNA shader recompiler, HLE runtime system contracts, and the foundational concept of running PS4 x86_64 code natively on Linux.

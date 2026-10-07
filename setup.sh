@@ -82,7 +82,12 @@ cat << 'EOF'
 
 Third-Party Tools & Libraries Acknowledged:
 
-1. shadPS4 & bbport (GPL-2.0 / MIT)
+1. deadinside28/bloodborne_pc (GPL-2.0)
+   Author: deadinside28
+   Role: Base native PS4 port, initial runtime execution environment, linker scripts, and patch compiler
+   URL: https://github.com/deadinside28/bloodborne_pc
+
+2. shadPS4 & bbport (GPL-2.0 / MIT)
    Authors: shadPS4 contributors, FireBurn, and the bbport team
    Role: PS4 Gnm/Gnmx Vulkan video core, GCN shader recompiler, HLE runtime concepts
    URL: https://github.com/shadps4-emu/shadPS4
