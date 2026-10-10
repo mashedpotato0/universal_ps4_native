@@ -18,3 +18,4 @@ WideCharToMultiByte
 FindFirstFileW
 FindNextFileW
 FindClose
+GetFileAttributesW

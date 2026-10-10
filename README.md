@@ -95,12 +95,14 @@ When you compile or run a title, standalone native launchers are automatically g
 bloodborne.bat
 ```
 
-### Windows Support & Graphical Launcher (`play.exe`)
-On Windows 10/11, you can launch titles with direct hardware-accelerated Vulkan graphics via WSL2:
-- **Graphical Launcher**: Double-click `play.exe` to configure title, frame rate caps, GPU device, and options.
-- **Command Line Runner**: Run `run.bat` or `run.bat /path/to/game.pkg`.
-- **Setup**: Run `setup.bat` to initialize the runtime environment.
-- **Linux UI**: Launch the graphical interface on Linux with `./play --ui`.
+### Windows Support & Standalone Release (`play.exe`)
+On Windows 10/11, you can download the standalone release zip (`universal_ps4_native-windows-x64.zip`), extract it anywhere, and launch immediately:
+- **Zero-Setup Standalone Release**: The standalone release package contains everything out of the box (CPU execution, Vulkan GPU pipelines, audio, input, and game patches).
+- **Graphical Launcher (`play.exe`)**: Double-click `play.exe` to configure title selection, low-spec laptop profile, frame rate caps (uncapped/30/60/90 fps), GPU device, and launch games natively.
+- **Command Line Runners**: Run `run.bat` or `run.bat /path/to/game.pkg`.
+- **WSL2 / Linux Bridge**: If WSL2 is available, `run.bat` can seamlessly bridge to the high-performance Linux native compiler.
+- **Cross-Platform UI**: Launch the graphical interface on Linux via `./play --ui`.
+
 
 ### Install Application Menu Shortcut (Steam Deck / GNOME / KDE)
 Generate a native desktop shortcut with the official PlayStation 4 game icon in `~/.local/share/applications`:

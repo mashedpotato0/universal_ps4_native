@@ -208,6 +208,8 @@ __declspec(dllimport) BOOL __stdcall CloseHandle(HANDLE);
 __declspec(dllimport) HANDLE __stdcall FindFirstFileW(const wchar_t*, WIN32_FIND_DATAW*);
 __declspec(dllimport) BOOL __stdcall FindNextFileW(HANDLE, WIN32_FIND_DATAW*);
 __declspec(dllimport) BOOL __stdcall FindClose(HANDLE);
+__declspec(dllimport) DWORD __stdcall GetFileAttributesW(const wchar_t*);
+
 
 __declspec(dllimport) UINT __stdcall RegisterClassExW(const WNDCLASSEXW*);
 __declspec(dllimport) HWND __stdcall CreateWindowExW(DWORD, const wchar_t*, const wchar_t*, DWORD, int, int, int, int, HWND, HMENU, HINSTANCE, void*);
@@ -452,21 +454,44 @@ static void executeAction(const wchar_t *subcmd) {
     if (gpuSel == 1) wcat(flags, L" --discrete", 1024);
     else if (gpuSel == 2) wcat(flags, L" --integrated", 1024);
 
+    /* check if native windows runner exists */
+    wchar_t winRunner[1024];
+    winRunner[0] = 0;
+    wcat(winRunner, appDir, 1024);
+    wcat(winRunner, L"\\bin\\windows\\shadPS4.exe", 1024);
+
+    DWORD runnerAttr = GetFileAttributesW(winRunner);
+    BOOL hasNativeWin = (runnerAttr != (DWORD)-1 && !(runnerAttr & 0x10 /* FILE_ATTRIBUTE_DIRECTORY */));
+
     /* build run command */
     wchar_t cmdLine[4096];
     cmdLine[0] = 0;
 
-    wcat(cmdLine, L"cmd.exe /c run.bat", 4096);
-    if (subcmd && subcmd[0]) {
-        wcat(cmdLine, L" ", 4096);
-        wcat(cmdLine, subcmd, 4096);
-    }
-    if (targetPath[0]) {
-        wcat(cmdLine, L" ", 4096);
-        wcat(cmdLine, targetPath, 4096);
-    }
-    if (flags[0]) {
-        wcat(cmdLine, flags, 4096);
+    if (hasNativeWin && (!subcmd || !subcmd[0] || (subcmd[0] == L'r' && subcmd[1] == L'u' && subcmd[2] == L'n'))) {
+        /* launch direct native windows runner */
+        wcat(cmdLine, L"\"", 4096);
+        wcat(cmdLine, winRunner, 4096);
+        wcat(cmdLine, L"\"", 4096);
+        if (targetPath[0]) {
+            wcat(cmdLine, L" -g ", 4096);
+            wcat(cmdLine, targetPath, 4096);
+        }
+        if (SendMessageW(hChkUncap, BM_GETCHECK, 0, 0) == BST_CHECKED) {
+            wcat(cmdLine, L" --show-fps", 4096);
+        }
+    } else {
+        wcat(cmdLine, L"cmd.exe /c run.bat", 4096);
+        if (subcmd && subcmd[0]) {
+            wcat(cmdLine, L" ", 4096);
+            wcat(cmdLine, subcmd, 4096);
+        }
+        if (targetPath[0]) {
+            wcat(cmdLine, L" ", 4096);
+            wcat(cmdLine, targetPath, 4096);
+        }
+        if (flags[0]) {
+            wcat(cmdLine, flags, 4096);
+        }
     }
 
     STARTUPINFOW si;
@@ -493,7 +518,7 @@ static void executeAction(const wchar_t *subcmd) {
 
     if (!ok) {
         MessageBoxW(NULL,
-            L"Could not launch game runner.\n\nMake sure run.bat or WSL2 is installed.",
+            L"Could not launch game runner.\n\nMake sure run.bat or bin/windows/shadPS4.exe is present.",
             L"Universal PS4 Native",
             MB_OK | MB_ICONERROR);
     } else {
@@ -501,6 +526,7 @@ static void executeAction(const wchar_t *subcmd) {
         CloseHandle(pi.hThread);
     }
 }
+
 
 static LRESULT LauncherWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
