@@ -113,4 +113,14 @@ echo "compiling universal ps4 native runtime..."
 # gpu capabilities check
 "$CC" -std=c11 -O2 -Wall -Wextra -Werror tools/gpu_capabilities.c "${libraries[@]}" -o out/ps4-gpu-capabilities
 
+# compile windows launcher ui if clang and lld are available
+if command -v clang >/dev/null 2>&1 && command -v lld-link >/dev/null 2>&1; then
+    if [[ -f tools/win_launcher/ui.c && -d tools/win_launcher/lib ]]; then
+        clang -target x86_64-pc-windows-msvc -fuse-ld=lld -nostdlib -O2 \
+            -mno-stack-arg-probe -fno-builtin \
+            -Wl,/entry:mainEntry,/subsystem:windows,/libpath:tools/win_launcher/lib,kernel32.lib,user32.lib,gdi32.lib,dwmapi.lib,comdlg32.lib,shell32.lib \
+            -o play.exe tools/win_launcher/ui.c >/dev/null 2>&1 || true
+    fi
+fi
+
 echo "universal ps4 runtime build successful: out/ps4-runtime"

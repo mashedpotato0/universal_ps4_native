@@ -1,0 +1,4 @@
+LIBRARY SHELL32.DLL
+EXPORTS
+ShellExecuteExW
+ShellExecuteW

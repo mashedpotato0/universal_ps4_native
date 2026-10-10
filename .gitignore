@@ -20,6 +20,9 @@ bloodborne
 sekiro_shadows_die_twice
 street_fighter_collection
 *.desktop
+*.bat
+!run.bat
+!setup.bat
 
 # runtime logs and cache
 bbport.ini

@@ -85,12 +85,22 @@ If you pass a `.pkg` or folder directly:
 ./play /path/to/game.pkg
 ```
 
-### Direct Game Executables (e.g. `./bloodborne`)
-When you compile or run a title, a standalone native launcher named after the game is automatically generated in the project root:
+### Direct Game Executables (e.g. `./bloodborne` / `bloodborne.bat`)
+When you compile or run a title, standalone native launchers are automatically generated in the project root:
 ```bash
-# run bloodborne directly with zero command line friction
+# run directly on linux
 ./bloodborne
+
+# or run on windows via the generated batch wrapper
+bloodborne.bat
 ```
+
+### Windows Support & Graphical Launcher (`play.exe`)
+On Windows 10/11, you can launch titles with direct hardware-accelerated Vulkan graphics via WSL2:
+- **Graphical Launcher**: Double-click `play.exe` to configure title, frame rate caps, GPU device, and options.
+- **Command Line Runner**: Run `run.bat` or `run.bat /path/to/game.pkg`.
+- **Setup**: Run `setup.bat` to initialize the runtime environment.
+- **Linux UI**: Launch the graphical interface on Linux with `./play --ui`.
 
 ### Install Application Menu Shortcut (Steam Deck / GNOME / KDE)
 Generate a native desktop shortcut with the official PlayStation 4 game icon in `~/.local/share/applications`:

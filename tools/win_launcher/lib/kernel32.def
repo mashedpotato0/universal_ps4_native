@@ -1,0 +1,20 @@
+LIBRARY KERNEL32.DLL
+EXPORTS
+ExitProcess
+GetCommandLineW
+GetModuleFileNameW
+CreateProcessW
+WaitForSingleObject
+GetExitCodeProcess
+CloseHandle
+GetLastError
+GetCurrentDirectoryW
+SetCurrentDirectoryW
+CreateFileW
+ReadFile
+GetFileSizeEx
+MultiByteToWideChar
+WideCharToMultiByte
+FindFirstFileW
+FindNextFileW
+FindClose

@@ -275,6 +275,13 @@ exec "${{RUNTIME_ARGS[@]}}" "${{EXTRA_ARGS[@]}}"
 """
     target_path.write_text(launcher_code)
     target_path.chmod(0o755)
+
+    # write windows batch wrapper
+    if target_path.parent == ROOT:
+        bat_path = ROOT / f"{target_path.name}.bat"
+        bat_code = f"@echo off\ncd /d \"%~dp0\"\ncall run.bat {target_path.name} %*\n"
+        bat_path.write_text(bat_code)
+
     rel_path = f"./{target_path.relative_to(ROOT)}" if target_path.is_relative_to(ROOT) else str(target_path)
     print("\n" + "=" * 60)
     print(f"game executable created: {rel_path}")

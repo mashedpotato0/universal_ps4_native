@@ -1,0 +1,13 @@
+LIBRARY GDI32.DLL
+EXPORTS
+CreateSolidBrush
+CreatePen
+DeleteObject
+SetBkColor
+SetBkMode
+SetTextColor
+CreateFontW
+SelectObject
+GetStockObject
+RoundRect
+Rectangle

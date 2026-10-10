@@ -135,6 +135,7 @@ def main():
         description="Universal One-Click PS4 Native Game Launcher"
     )
     parser.add_argument("targets", nargs="*", default=[], help="path(s) to game folder, .pkg file(s), or pkg directory")
+    parser.add_argument("--ui", action="store_true", help="launch graphical launcher interface")
     parser.add_argument("--sync-launchers", action="store_true", help="generate root launcher scripts for compiled games")
     parser.add_argument("--no-cap-fps", "--uncap-fps", dest="no_cap_fps", action="store_true", default=False, help="uncap frame rate limit")
     parser.add_argument("--fps", choices=["30", "60", "90", "uncap"], default=None, help="target fps preset")
@@ -149,6 +150,11 @@ def main():
     parser.add_argument("--list-gpus", action="store_true", help="list available vulkan gpus")
 
     args, unknown = parser.parse_known_args()
+
+    if args.ui:
+        ui_script = SCRIPTS / "ui.py"
+        if ui_script.exists():
+            sys.exit(subprocess.run([sys.executable, str(ui_script)]).returncode)
 
     cli_script = BIN / "ps4-native"
 
