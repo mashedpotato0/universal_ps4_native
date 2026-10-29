@@ -90,11 +90,14 @@ for src in "${RUNTIME_SOURCES[@]}"; do
     RUNTIME_OBJS+=("$obj")
 done
 
+# compile android native activity entry
+"$CC" $CFLAGS -c src/android_main.c -o "$OUT_DIR/android_main.o"
+
 # build shared library
 echo "linking libps4_translator.so..."
 "$CC" -shared -fPIC -Wl,-soname,libps4_translator.so \
-    "$OUT_DIR/runtime_translator.o" "${RUNTIME_OBJS[@]}" \
-    -lm -pthread -ldl -o "$OUT_DIR/libps4_translator.so"
+    "$OUT_DIR/runtime_translator.o" "$OUT_DIR/android_main.o" "${RUNTIME_OBJS[@]}" \
+    -llog -landroid -lm -pthread -ldl -o "$OUT_DIR/libps4_translator.so"
 
 # build standalone executable
 echo "linking ps4-translator runner..."

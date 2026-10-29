@@ -18,6 +18,7 @@ sys.path.insert(0, str(SCRIPTS))
 import pkg
 import prepare
 import link_modules
+import apk
 
 
 def run_cmd(cmd, env=None, check=True):
@@ -400,6 +401,12 @@ def compile_game(game_dir: Path, out_dir: Path = None, app_out: Path = None, fps
     return boot_bin
 
 
+def apk_game(targets, out_apk: Path = None, package_name: str = None, app_name: str = None, keystore: Path = None):
+    # resolve game directory and package into android apk
+    game_dir = resolve_game_dir(targets)
+    return apk.build_apk(game_dir, out_apk=out_apk, package_name=package_name, app_name=app_name, keystore=keystore)
+
+
 def resolve_game_dir(targets, rebuild: bool = False) -> Path:
     # resolve game directory from single path pkg list or folder
     if isinstance(targets, (str, Path)):
@@ -607,6 +614,14 @@ def main():
     p_dsk = sub.add_parser("desktop", help="install a desktop shortcut with game icon to application menu")
     p_dsk.add_argument("game_dir", type=Path, help="extracted game directory")
 
+    # apk
+    p_apk = sub.add_parser("apk", help="build standalone android apk with aarch64 translator")
+    p_apk.add_argument("targets", type=Path, nargs="+", help="path(s) to game directory, .pkg file, or folder of pkgs")
+    p_apk.add_argument("--out", type=Path, default=None, help="output apk path (defaults to <title>.apk)")
+    p_apk.add_argument("--app-name", type=str, default=None, help="android application display name")
+    p_apk.add_argument("--package-name", type=str, default=None, help="android package identifier")
+    p_apk.add_argument("--keystore", type=Path, default=None, help="custom signing keystore")
+
     # run
     p_run = sub.add_parser("run", help="run or build a ps4 game from folder, .pkg, or multiple pkgs")
     p_run.add_argument("targets", type=Path, nargs="+", help="path(s) to game directory, .pkg file(s), or folder of pkgs")
@@ -634,6 +649,8 @@ def main():
         compile_game(args.game_dir, args.out, app_out=args.app_out, fps=fps_preset)
     elif args.command == "desktop":
         create_desktop_entry(args.game_dir)
+    elif args.command == "apk":
+        apk_game(args.targets, out_apk=args.out, package_name=args.package_name, app_name=args.app_name, keystore=args.keystore)
     elif args.command == "run":
         code = run_game(args.targets, args, unknown)
         sys.exit(code)
