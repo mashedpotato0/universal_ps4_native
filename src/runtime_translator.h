@@ -166,9 +166,12 @@ x64_block_t *x64_cache_lookup(x64_cache_t *cache, uint64_t guest_pc);
 x64_block_t *x64_cache_translate(x64_cache_t *cache, x64_cpu_t *cpu, uint64_t guest_pc);
 
 size_t arm64_emit_mov_reg(uint8_t *buf, uint8_t dst_reg, uint8_t src_reg);
+size_t arm64_emit_mov_imm(uint8_t *buf, uint8_t dst_reg, uint16_t imm);
 size_t arm64_emit_add_imm(uint8_t *buf, uint8_t dst_reg, uint8_t src_reg, uint16_t imm);
 size_t arm64_emit_sub_imm(uint8_t *buf, uint8_t dst_reg, uint8_t src_reg, uint16_t imm);
 size_t arm64_emit_ret(uint8_t *buf);
+size_t arm64_emit_nop(uint8_t *buf);
+int arm64_jit_compile_block(x64_block_t *block);
 
 void runtime_translator_report(void);
 

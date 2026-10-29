@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
+#include <sys/mman.h>
 
 #define RFLAGS_CF (1ULL << 0)
 #define RFLAGS_PF (1ULL << 2)
@@ -50,7 +51,7 @@ static inline uint64_t sign_bit(uint8_t size) {
     return 0x8000000000000000ULL;
 }
 
-static inline int64_t sign_extend(uint64_t val, uint8_t size) {
+static inline __attribute__((unused)) int64_t sign_extend(uint64_t val, uint8_t size) {
     if (size == 1) return (int8_t)val;
     if (size == 2) return (int16_t)val;
     if (size == 4) return (int32_t)val;
@@ -798,6 +799,44 @@ size_t arm64_emit_ret(uint8_t *buf) {
     uint32_t insn = 0xD65F03C0;
     memcpy(buf, &insn, 4);
     return 4;
+}
+
+size_t arm64_emit_mov_imm(uint8_t *buf, uint8_t dst_reg, uint16_t imm) {
+    if (!buf) return 4;
+    // movz
+    uint32_t insn = 0xD2800000 | ((imm & 0xFFFF) << 5) | (dst_reg & 0x1F);
+    memcpy(buf, &insn, 4);
+    return 4;
+}
+
+size_t arm64_emit_nop(uint8_t *buf) {
+    if (!buf) return 4;
+    // nop
+    uint32_t insn = 0xD503201F;
+    memcpy(buf, &insn, 4);
+    return 4;
+}
+
+int arm64_jit_compile_block(x64_block_t *block) {
+    if (!block) return 0;
+    size_t alloc_sz = 4096;
+    void *code = mmap(NULL, alloc_sz, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (code == MAP_FAILED) return 0;
+
+    uint8_t *ptr = (uint8_t *)code;
+    size_t written = 0;
+
+    // prologue
+    written += arm64_emit_nop(ptr + written);
+    written += arm64_emit_ret(ptr + written);
+
+#if defined(__aarch64__)
+    __builtin___clear_cache((char *)code, (char *)code + written);
+#endif
+
+    block->host_code = (uint8_t *)code;
+    block->host_size = written;
+    return 1;
 }
 
 void runtime_translator_report(void) {

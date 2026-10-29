@@ -15,7 +15,9 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <sys/mman.h>
+#if defined(__x86_64__) && !defined(_WIN32)
 #include <asm/prctl.h>
+#endif
 #define ERR(n) ((int32_t)(UINT32_C(0x80020000)|(n)))
 #define ATTR_MAGIC UINT32_C(0x41545452)
 #define STACK_MARGIN (256*1024)
@@ -58,7 +60,11 @@ void runtime_set_main_tls(const void *data,uint64_t filesz,uint64_t memsz,uint64
 }
 static uint64_t tls_offset(void) { return (tls_memsz+tls_align-1)&~(tls_align-1); }
 static void set_gs(void *base) {
+#if defined(__x86_64__) && defined(SYS_arch_prctl)
     if (syscall(SYS_arch_prctl,ARCH_SET_GS,(unsigned long)base)) { perror("STOP: arch_prctl(ARCH_SET_GS)"); exit(21); }
+#else
+    (void)base;
+#endif
 }
 /* Build TCB/static TLS for the calling host thread and point GS at it. */
 static void attach(GuestThread *t) {

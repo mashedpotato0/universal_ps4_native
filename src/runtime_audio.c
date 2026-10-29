@@ -13,7 +13,27 @@
 #include <string.h>
 #include <pthread.h>
 #include <time.h>
+#if __has_include(<SDL3/SDL.h>)
 #include <SDL3/SDL.h>
+#define HAVE_SDL3 1
+#else
+#define HAVE_SDL3 0
+typedef struct SDL_AudioStream SDL_AudioStream;
+typedef uint32_t SDL_AudioDeviceID;
+#define SDL_INIT_AUDIO 0
+#define SDL_AUDIO_S16 0
+#define SDL_AUDIO_F32 1
+#define SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK 0
+typedef struct { int format; int channels; int freq; } SDL_AudioSpec;
+static inline int SDL_InitSubSystem(uint32_t f) { (void)f; return 0; }
+static inline const char *SDL_GetCurrentAudioDriver(void) { return "none"; }
+static inline SDL_AudioStream *SDL_OpenAudioDeviceStream(SDL_AudioDeviceID d, const SDL_AudioSpec *s, void *cb, void *ud) { (void)d; (void)s; (void)cb; (void)ud; return NULL; }
+static inline void SDL_ResumeAudioStreamDevice(SDL_AudioStream *s) { (void)s; }
+static inline void SDL_DestroyAudioStream(SDL_AudioStream *s) { (void)s; }
+static inline int SDL_GetAudioStreamQueued(SDL_AudioStream *s) { (void)s; return 0; }
+static inline int SDL_PutAudioStreamData(SDL_AudioStream *s, const void *b, int l) { (void)s; (void)b; (void)l; return 0; }
+static inline const char *SDL_GetError(void) { return "sdl3 not available"; }
+#endif
 
 #define PORTS 25
 #define ERR_NOT_OPENED ((int32_t)0x80260001)

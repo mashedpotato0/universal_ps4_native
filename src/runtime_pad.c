@@ -14,7 +14,57 @@
 #include <string.h>
 #include <pthread.h>
 #include <time.h>
+#if __has_include(<SDL3/SDL.h>)
 #include <SDL3/SDL.h>
+#define HAVE_SDL3 1
+#else
+#define HAVE_SDL3 0
+#include <stdbool.h>
+typedef struct SDL_Gamepad SDL_Gamepad;
+typedef uint32_t SDL_JoystickID;
+typedef uint32_t SDL_MouseButtonFlags;
+typedef enum {
+    SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST, SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH,
+    SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, SDL_GAMEPAD_BUTTON_LEFT_STICK,
+    SDL_GAMEPAD_BUTTON_RIGHT_STICK, SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_BACK, SDL_GAMEPAD_BUTTON_TOUCHPAD,
+    SDL_GAMEPAD_BUTTON_DPAD_UP, SDL_GAMEPAD_BUTTON_DPAD_DOWN, SDL_GAMEPAD_BUTTON_DPAD_LEFT, SDL_GAMEPAD_BUTTON_DPAD_RIGHT
+} SDL_GamepadButton;
+typedef enum {
+    SDL_GAMEPAD_AXIS_LEFTX, SDL_GAMEPAD_AXIS_LEFTY, SDL_GAMEPAD_AXIS_RIGHTX, SDL_GAMEPAD_AXIS_RIGHTY,
+    SDL_GAMEPAD_AXIS_LEFT_TRIGGER, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER
+} SDL_GamepadAxis;
+enum {
+    SDL_SCANCODE_RETURN = 40, SDL_SCANCODE_ESCAPE = 41, SDL_SCANCODE_BACKSPACE = 42, SDL_SCANCODE_TAB = 43,
+    SDL_SCANCODE_F9 = 66, SDL_SCANCODE_RIGHT = 79, SDL_SCANCODE_LEFT = 80, SDL_SCANCODE_DOWN = 81,
+    SDL_SCANCODE_UP = 82, SDL_SCANCODE_KP_ENTER = 88, SDL_SCANCODE_T = 23, SDL_SCANCODE_Y = 28
+};
+#define SDL_BUTTON_LMASK 1
+#define SDL_BUTTON_RMASK 2
+#define SDL_BUTTON_MMASK 4
+#define SDL_BUTTON_X1 4
+#define SDL_BUTTON_X2 5
+#define SDL_INIT_GAMEPAD 0
+#define SDL_INIT_VIDEO 0
+#define SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS ""
+static inline int SDL_SetHint(const char *n, const char *v) { (void)n; (void)v; return 0; }
+static inline int SDL_WasInit(uint32_t f) { (void)f; return 0; }
+static inline int SDL_InitSubSystem(uint32_t f) { (void)f; return 0; }
+static inline bool SDL_GamepadConnected(SDL_Gamepad *g) { (void)g; return false; }
+static inline void SDL_CloseGamepad(SDL_Gamepad *g) { (void)g; }
+static inline void SDL_UpdateGamepads(void) {}
+static inline SDL_JoystickID *SDL_GetGamepads(int *c) { if (c) *c = 0; return NULL; }
+static inline SDL_Gamepad *SDL_OpenGamepad(SDL_JoystickID id) { (void)id; return NULL; }
+static inline const char *SDL_GetGamepadName(SDL_Gamepad *g) { (void)g; return "none"; }
+static inline void SDL_free(void *m) { (void)m; }
+static inline const bool *SDL_GetKeyboardState(int *n) { if (n) *n = 0; return NULL; }
+static inline bool SDL_GetGamepadButton(SDL_Gamepad *g, SDL_GamepadButton b) { (void)g; (void)b; return false; }
+static inline int16_t SDL_GetGamepadAxis(SDL_Gamepad *g, SDL_GamepadAxis a) { (void)g; (void)a; return 0; }
+static inline int SDL_GetNumGamepadTouchpads(SDL_Gamepad *g) { (void)g; return 0; }
+static inline int SDL_GetNumGamepadTouchpadFingers(SDL_Gamepad *g, int t) { (void)g; (void)t; return 0; }
+static inline bool SDL_GetGamepadTouchpadFinger(SDL_Gamepad *g, int t, int f, bool *d, float *x, float *y, float *p) { (void)g; (void)t; (void)f; (void)d; (void)x; (void)y; (void)p; return false; }
+static inline SDL_MouseButtonFlags SDL_GetRelativeMouseState(float *x, float *y) { if (x) *x = 0; if (y) *y = 0; return 0; }
+static inline bool SDL_RumbleGamepad(SDL_Gamepad *g, uint16_t l, uint16_t h, uint32_t d) { (void)g; (void)l; (void)h; (void)d; return false; }
+#endif
 #include <sys/stat.h>
 
 #define ERR_INVALID_ARG ((int32_t)0x80920001)
