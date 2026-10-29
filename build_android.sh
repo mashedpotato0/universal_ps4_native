@@ -66,6 +66,8 @@ echo "building translator for android arm64-v8a..."
 
 # compile runtime shims for android
 RUNTIME_SOURCES=(
+    src/runtime.c
+    src/runtime_bbgpu_stub.c
     src/runtime_memory.c
     src/runtime_time.c
     src/runtime_thread.c
@@ -90,12 +92,20 @@ for src in "${RUNTIME_SOURCES[@]}"; do
     RUNTIME_OBJS+=("$obj")
 done
 
+# compile atrac9 decoder objects
+mkdir -p "$OUT_DIR/at9"
+for src in third_party/LibAtrac9/C/src/*.c; do
+    obj="$OUT_DIR/at9/$(basename "${src%.c}").o"
+    "$CC" -std=c99 -O3 -fPIC -w -Ithird_party/LibAtrac9/C/src -c "$src" -o "$obj"
+    RUNTIME_OBJS+=("$obj")
+done
+
 # compile android native activity entry
 "$CC" $CFLAGS -c src/android_main.c -o "$OUT_DIR/android_main.o"
 
 # build shared library
 echo "linking libps4_translator.so..."
-"$CC" -shared -fPIC -Wl,-soname,libps4_translator.so \
+"$CC" -shared -fPIC -Wl,-soname,libps4_translator.so -Wl,--no-undefined \
     "$OUT_DIR/runtime_translator.o" "$OUT_DIR/android_main.o" "${RUNTIME_OBJS[@]}" \
     -llog -landroid -lm -pthread -ldl -o "$OUT_DIR/libps4_translator.so"
 

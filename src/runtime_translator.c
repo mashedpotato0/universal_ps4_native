@@ -4,6 +4,7 @@
 #include <string.h>
 #include <inttypes.h>
 #include <sys/mman.h>
+#include <sched.h>
 
 #define RFLAGS_CF (1ULL << 0)
 #define RFLAGS_PF (1ULL << 2)
@@ -103,11 +104,17 @@ int x64_decode(const uint8_t *code, size_t max_len, uint64_t rip, x64_insn_t *in
     uint8_t rex = 0;
     uint8_t op_override = 0;
     uint8_t seg = 0;
+    uint8_t has_lock = 0;
+    uint8_t has_rep = 0;
+    uint8_t has_repne = 0;
 
     // decode prefixes
     while (idx < max_len && idx < 15) {
         uint8_t b = code[idx];
         if (b == 0x66) { op_override = 1; idx++; }
+        else if (b == 0xF0) { has_lock = 1; idx++; }
+        else if (b == 0xF3) { has_rep = 1; idx++; }
+        else if (b == 0xF2) { has_repne = 1; idx++; }
         else if (b == 0x64) { seg = 0x64; idx++; } // fs segment
         else if (b == 0x65) { seg = 0x65; idx++; } // gs segment
         else if ((b & 0xF0) == 0x40) { rex = b; idx++; }
@@ -116,6 +123,7 @@ int x64_decode(const uint8_t *code, size_t max_len, uint64_t rip, x64_insn_t *in
 
     if (idx >= max_len) return 0;
     insn->segment_override = seg;
+    insn->has_lock = has_lock;
 
     uint8_t rex_w = (rex >> 3) & 1;
     uint8_t rex_r = (rex >> 2) & 1;
@@ -127,9 +135,9 @@ int x64_decode(const uint8_t *code, size_t max_len, uint64_t rip, x64_insn_t *in
 
     uint8_t op = code[idx++];
 
-    // nop
+    // nop and pause
     if (op == 0x90) {
-        insn->op = X64_OP_NOP;
+        insn->op = has_rep ? X64_OP_PAUSE : X64_OP_NOP;
         insn->len = (uint8_t)idx;
         return (int)insn->len;
     }
@@ -233,10 +241,13 @@ int x64_decode(const uint8_t *code, size_t max_len, uint64_t rip, x64_insn_t *in
         return (int)insn->len;
     }
 
+    uint8_t is_two_byte = 0;
+    uint8_t op2 = 0;
+
     // two-byte opcodes
     if (op == 0x0F) {
         if (idx >= max_len) return 0;
-        uint8_t op2 = code[idx++];
+        op2 = code[idx++];
 
         // syscall
         if (op2 == 0x05) {
@@ -265,6 +276,8 @@ int x64_decode(const uint8_t *code, size_t max_len, uint64_t rip, x64_insn_t *in
             insn->len = (uint8_t)idx;
             return (int)insn->len;
         }
+
+        is_two_byte = 1;
     }
 
     // decode modrm
@@ -322,7 +335,162 @@ int x64_decode(const uint8_t *code, size_t max_len, uint64_t rip, x64_insn_t *in
     }
 
     // decode opcodes using modrm
-    if (op == 0x89) { // mov rm, r
+    if (is_two_byte) {
+        // vector and sse opcodes
+        if (op2 == 0x57) { // xorps or pxor
+            insn->op = op_override ? X64_OP_PXOR : X64_OP_XORPS;
+            insn->is_vec = 1;
+            insn->dst_kind = X64_ARG_REG;
+            insn->dst_reg = (x64_reg_t)reg;
+            insn->src_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->src_reg = (x64_reg_t)rm;
+        } else if (op2 == 0x54) { // andps
+            insn->op = X64_OP_ANDPS;
+            insn->is_vec = 1;
+            insn->dst_kind = X64_ARG_REG;
+            insn->dst_reg = (x64_reg_t)reg;
+            insn->src_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->src_reg = (x64_reg_t)rm;
+        } else if (op2 == 0x56) { // orps
+            insn->op = X64_OP_ORPS;
+            insn->is_vec = 1;
+            insn->dst_kind = X64_ARG_REG;
+            insn->dst_reg = (x64_reg_t)reg;
+            insn->src_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->src_reg = (x64_reg_t)rm;
+        } else if (op2 == 0xEF) { // pxor
+            insn->op = X64_OP_PXOR;
+            insn->is_vec = 1;
+            insn->dst_kind = X64_ARG_REG;
+            insn->dst_reg = (x64_reg_t)reg;
+            insn->src_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->src_reg = (x64_reg_t)rm;
+        } else if (op2 == 0x58) { // addps/addss/addsd
+            if (has_rep) insn->op = X64_OP_ADDSS;
+            else if (has_repne) insn->op = X64_OP_ADDSD;
+            else insn->op = X64_OP_ADDPS;
+            insn->is_vec = 1;
+            insn->dst_kind = X64_ARG_REG;
+            insn->dst_reg = (x64_reg_t)reg;
+            insn->src_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->src_reg = (x64_reg_t)rm;
+        } else if (op2 == 0x5C) { // subps/subss/subsd
+            if (has_rep) insn->op = X64_OP_SUBSS;
+            else if (has_repne) insn->op = X64_OP_SUBSD;
+            else insn->op = X64_OP_SUBPS;
+            insn->is_vec = 1;
+            insn->dst_kind = X64_ARG_REG;
+            insn->dst_reg = (x64_reg_t)reg;
+            insn->src_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->src_reg = (x64_reg_t)rm;
+        } else if (op2 == 0x59) { // mulps/mulss/mulsd
+            if (has_rep) insn->op = X64_OP_MULSS;
+            else if (has_repne) insn->op = X64_OP_MULSD;
+            else insn->op = X64_OP_MULPS;
+            insn->is_vec = 1;
+            insn->dst_kind = X64_ARG_REG;
+            insn->dst_reg = (x64_reg_t)reg;
+            insn->src_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->src_reg = (x64_reg_t)rm;
+        } else if (op2 == 0x5E) { // divps/divss/divsd
+            if (has_rep) insn->op = X64_OP_DIVSS;
+            else if (has_repne) insn->op = X64_OP_DIVSD;
+            else insn->op = X64_OP_DIVPS;
+            insn->is_vec = 1;
+            insn->dst_kind = X64_ARG_REG;
+            insn->dst_reg = (x64_reg_t)reg;
+            insn->src_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->src_reg = (x64_reg_t)rm;
+        } else if (op2 == 0x10) { // movups/movss/movsd
+            if (has_rep) insn->op = X64_OP_MOVSS;
+            else if (has_repne) insn->op = X64_OP_MOVSD;
+            else insn->op = X64_OP_MOVUPS;
+            insn->is_vec = 1;
+            insn->dst_kind = X64_ARG_REG;
+            insn->dst_reg = (x64_reg_t)reg;
+            insn->src_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->src_reg = (x64_reg_t)rm;
+        } else if (op2 == 0x11) { // store movups/movss/movsd
+            if (has_rep) insn->op = X64_OP_MOVSS;
+            else if (has_repne) insn->op = X64_OP_MOVSD;
+            else insn->op = X64_OP_MOVUPS;
+            insn->is_vec = 1;
+            insn->dst_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->dst_reg = (x64_reg_t)rm;
+            insn->src_kind = X64_ARG_REG;
+            insn->src_reg = (x64_reg_t)reg;
+        } else if (op2 == 0x28) { // movaps
+            insn->op = X64_OP_MOVAPS;
+            insn->is_vec = 1;
+            insn->dst_kind = X64_ARG_REG;
+            insn->dst_reg = (x64_reg_t)reg;
+            insn->src_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->src_reg = (x64_reg_t)rm;
+        } else if (op2 == 0x29) { // movaps store
+            insn->op = X64_OP_MOVAPS;
+            insn->is_vec = 1;
+            insn->dst_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->dst_reg = (x64_reg_t)rm;
+            insn->src_kind = X64_ARG_REG;
+            insn->src_reg = (x64_reg_t)reg;
+        } else if (op2 == 0x2E) { // ucomiss/ucomisd
+            insn->op = op_override ? X64_OP_UCOMISD : X64_OP_UCOMISS;
+            insn->is_vec = 1;
+            insn->dst_kind = X64_ARG_REG;
+            insn->dst_reg = (x64_reg_t)reg;
+            insn->src_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->src_reg = (x64_reg_t)rm;
+        } else if (op2 == 0x2F) { // comiss/comisd
+            insn->op = op_override ? X64_OP_COMISD : X64_OP_COMISS;
+            insn->is_vec = 1;
+            insn->dst_kind = X64_ARG_REG;
+            insn->dst_reg = (x64_reg_t)reg;
+            insn->src_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->src_reg = (x64_reg_t)rm;
+        } else if (op2 == 0x2A) { // cvtsi2ss/cvtsi2sd
+            insn->op = has_repne ? X64_OP_CVTSI2SD : X64_OP_CVTSI2SS;
+            insn->is_vec = 1;
+            insn->dst_kind = X64_ARG_REG;
+            insn->dst_reg = (x64_reg_t)reg;
+            insn->src_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->src_reg = (x64_reg_t)rm;
+        } else if (op2 == 0x2C) { // cvttss2si/cvttsd2si
+            insn->op = has_repne ? X64_OP_CVTTSD2SI : X64_OP_CVTTSS2SI;
+            insn->dst_kind = X64_ARG_REG;
+            insn->dst_reg = (x64_reg_t)reg;
+            insn->src_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->src_reg = (x64_reg_t)rm;
+        } else if (op2 == 0xAE) { // fences
+            uint8_t grp = (modrm >> 3) & 7;
+            if (grp == 5) insn->op = X64_OP_LFENCE;
+            else if (grp == 6) insn->op = X64_OP_MFENCE;
+            else if (grp == 7) insn->op = X64_OP_SFENCE;
+            else return 0;
+        } else if (op2 == 0xB0 || op2 == 0xB1) { // cmpxchg
+            insn->op = X64_OP_CMPXCHG;
+            insn->op_size = (op2 == 0xB0) ? 1 : (rex_w ? 8 : (op_override ? 2 : 4));
+            insn->dst_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->dst_reg = (x64_reg_t)rm;
+            insn->src_kind = X64_ARG_REG;
+            insn->src_reg = (x64_reg_t)reg;
+        } else if (op2 == 0xC0 || op2 == 0xC1) { // xadd
+            insn->op = X64_OP_XADD;
+            insn->op_size = (op2 == 0xC0) ? 1 : (rex_w ? 8 : (op_override ? 2 : 4));
+            insn->dst_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+            insn->dst_reg = (x64_reg_t)rm;
+            insn->src_kind = X64_ARG_REG;
+            insn->src_reg = (x64_reg_t)reg;
+        } else {
+            return 0;
+        }
+    } else if (op == 0x86 || op == 0x87) { // xchg
+        insn->op = X64_OP_XCHG;
+        insn->op_size = (op == 0x86) ? 1 : (rex_w ? 8 : (op_override ? 2 : 4));
+        insn->dst_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
+        insn->dst_reg = (x64_reg_t)rm;
+        insn->src_kind = X64_ARG_REG;
+        insn->src_reg = (x64_reg_t)reg;
+    } else if (op == 0x89) { // mov rm, r
         insn->op = X64_OP_MOV;
         insn->dst_kind = (mod == 3) ? X64_ARG_REG : X64_ARG_MEM;
         insn->dst_reg = (x64_reg_t)rm;
@@ -479,6 +647,14 @@ static void write_mem(uint64_t addr, uint64_t val, uint8_t size) {
     else if (size == 2) *(uint16_t *)(uintptr_t)addr = (uint16_t)val;
     else if (size == 4) *(uint32_t *)(uintptr_t)addr = (uint32_t)val;
     else if (size == 8) *(uint64_t *)(uintptr_t)addr = val;
+}
+
+static inline void read_mem128(uint64_t addr, x64_vec128_t *vec) {
+    memcpy(vec, (const void *)(uintptr_t)addr, 16);
+}
+
+static inline void write_mem128(uint64_t addr, const x64_vec128_t *vec) {
+    memcpy((void *)(uintptr_t)addr, vec, 16);
 }
 
 static int eval_cond(uint64_t rflags, x64_cond_t cond) {
@@ -654,6 +830,291 @@ int x64_step(x64_cpu_t *cpu) {
             }
             break;
         }
+
+        case X64_OP_XORPS:
+        case X64_OP_PXOR: {
+            x64_vec128_t src = {0};
+            if (insn.src_kind == X64_ARG_REG) src = cpu->xmm[insn.src_reg];
+            else read_mem128(resolve_mem_addr(cpu, &insn), &src);
+            cpu->xmm[insn.dst_reg].u64[0] ^= src.u64[0];
+            cpu->xmm[insn.dst_reg].u64[1] ^= src.u64[1];
+            break;
+        }
+
+        case X64_OP_ANDPS: {
+            x64_vec128_t src = {0};
+            if (insn.src_kind == X64_ARG_REG) src = cpu->xmm[insn.src_reg];
+            else read_mem128(resolve_mem_addr(cpu, &insn), &src);
+            cpu->xmm[insn.dst_reg].u64[0] &= src.u64[0];
+            cpu->xmm[insn.dst_reg].u64[1] &= src.u64[1];
+            break;
+        }
+
+        case X64_OP_ORPS: {
+            x64_vec128_t src = {0};
+            if (insn.src_kind == X64_ARG_REG) src = cpu->xmm[insn.src_reg];
+            else read_mem128(resolve_mem_addr(cpu, &insn), &src);
+            cpu->xmm[insn.dst_reg].u64[0] |= src.u64[0];
+            cpu->xmm[insn.dst_reg].u64[1] |= src.u64[1];
+            break;
+        }
+
+        case X64_OP_ADDPS: {
+            x64_vec128_t src = {0};
+            if (insn.src_kind == X64_ARG_REG) src = cpu->xmm[insn.src_reg];
+            else read_mem128(resolve_mem_addr(cpu, &insn), &src);
+            for (int i = 0; i < 4; i++) cpu->xmm[insn.dst_reg].f32[i] += src.f32[i];
+            break;
+        }
+
+        case X64_OP_SUBPS: {
+            x64_vec128_t src = {0};
+            if (insn.src_kind == X64_ARG_REG) src = cpu->xmm[insn.src_reg];
+            else read_mem128(resolve_mem_addr(cpu, &insn), &src);
+            for (int i = 0; i < 4; i++) cpu->xmm[insn.dst_reg].f32[i] -= src.f32[i];
+            break;
+        }
+
+        case X64_OP_MULPS: {
+            x64_vec128_t src = {0};
+            if (insn.src_kind == X64_ARG_REG) src = cpu->xmm[insn.src_reg];
+            else read_mem128(resolve_mem_addr(cpu, &insn), &src);
+            for (int i = 0; i < 4; i++) cpu->xmm[insn.dst_reg].f32[i] *= src.f32[i];
+            break;
+        }
+
+        case X64_OP_DIVPS: {
+            x64_vec128_t src = {0};
+            if (insn.src_kind == X64_ARG_REG) src = cpu->xmm[insn.src_reg];
+            else read_mem128(resolve_mem_addr(cpu, &insn), &src);
+            for (int i = 0; i < 4; i++) {
+                if (src.f32[i] != 0.0f) cpu->xmm[insn.dst_reg].f32[i] /= src.f32[i];
+            }
+            break;
+        }
+
+        case X64_OP_ADDSS: {
+            float src = (insn.src_kind == X64_ARG_REG) ? cpu->xmm[insn.src_reg].f32[0] : *(const float *)(uintptr_t)resolve_mem_addr(cpu, &insn);
+            cpu->xmm[insn.dst_reg].f32[0] += src;
+            break;
+        }
+
+        case X64_OP_SUBSS: {
+            float src = (insn.src_kind == X64_ARG_REG) ? cpu->xmm[insn.src_reg].f32[0] : *(const float *)(uintptr_t)resolve_mem_addr(cpu, &insn);
+            cpu->xmm[insn.dst_reg].f32[0] -= src;
+            break;
+        }
+
+        case X64_OP_MULSS: {
+            float src = (insn.src_kind == X64_ARG_REG) ? cpu->xmm[insn.src_reg].f32[0] : *(const float *)(uintptr_t)resolve_mem_addr(cpu, &insn);
+            cpu->xmm[insn.dst_reg].f32[0] *= src;
+            break;
+        }
+
+        case X64_OP_DIVSS: {
+            float src = (insn.src_kind == X64_ARG_REG) ? cpu->xmm[insn.src_reg].f32[0] : *(const float *)(uintptr_t)resolve_mem_addr(cpu, &insn);
+            if (src != 0.0f) cpu->xmm[insn.dst_reg].f32[0] /= src;
+            break;
+        }
+
+        case X64_OP_ADDSD: {
+            double src = (insn.src_kind == X64_ARG_REG) ? cpu->xmm[insn.src_reg].f64[0] : *(const double *)(uintptr_t)resolve_mem_addr(cpu, &insn);
+            cpu->xmm[insn.dst_reg].f64[0] += src;
+            break;
+        }
+
+        case X64_OP_SUBSD: {
+            double src = (insn.src_kind == X64_ARG_REG) ? cpu->xmm[insn.src_reg].f64[0] : *(const double *)(uintptr_t)resolve_mem_addr(cpu, &insn);
+            cpu->xmm[insn.dst_reg].f64[0] -= src;
+            break;
+        }
+
+        case X64_OP_MULSD: {
+            double src = (insn.src_kind == X64_ARG_REG) ? cpu->xmm[insn.src_reg].f64[0] : *(const double *)(uintptr_t)resolve_mem_addr(cpu, &insn);
+            cpu->xmm[insn.dst_reg].f64[0] *= src;
+            break;
+        }
+
+        case X64_OP_DIVSD: {
+            double src = (insn.src_kind == X64_ARG_REG) ? cpu->xmm[insn.src_reg].f64[0] : *(const double *)(uintptr_t)resolve_mem_addr(cpu, &insn);
+            if (src != 0.0) cpu->xmm[insn.dst_reg].f64[0] /= src;
+            break;
+        }
+
+        case X64_OP_MOVAPS:
+        case X64_OP_MOVUPS: {
+            if (insn.dst_kind == X64_ARG_REG && insn.src_kind == X64_ARG_REG) {
+                cpu->xmm[insn.dst_reg] = cpu->xmm[insn.src_reg];
+            } else if (insn.dst_kind == X64_ARG_REG) {
+                read_mem128(resolve_mem_addr(cpu, &insn), &cpu->xmm[insn.dst_reg]);
+            } else {
+                write_mem128(resolve_mem_addr(cpu, &insn), &cpu->xmm[insn.src_reg]);
+            }
+            break;
+        }
+
+        case X64_OP_MOVSS: {
+            if (insn.dst_kind == X64_ARG_REG && insn.src_kind == X64_ARG_REG) {
+                cpu->xmm[insn.dst_reg].u32[0] = cpu->xmm[insn.src_reg].u32[0];
+            } else if (insn.dst_kind == X64_ARG_REG) {
+                cpu->xmm[insn.dst_reg].u32[0] = (uint32_t)read_mem(resolve_mem_addr(cpu, &insn), 4);
+                cpu->xmm[insn.dst_reg].u32[1] = 0;
+                cpu->xmm[insn.dst_reg].u32[2] = 0;
+                cpu->xmm[insn.dst_reg].u32[3] = 0;
+            } else {
+                write_mem(resolve_mem_addr(cpu, &insn), cpu->xmm[insn.src_reg].u32[0], 4);
+            }
+            break;
+        }
+
+        case X64_OP_MOVSD: {
+            if (insn.dst_kind == X64_ARG_REG && insn.src_kind == X64_ARG_REG) {
+                cpu->xmm[insn.dst_reg].u64[0] = cpu->xmm[insn.src_reg].u64[0];
+            } else if (insn.dst_kind == X64_ARG_REG) {
+                cpu->xmm[insn.dst_reg].u64[0] = read_mem(resolve_mem_addr(cpu, &insn), 8);
+                cpu->xmm[insn.dst_reg].u64[1] = 0;
+            } else {
+                write_mem(resolve_mem_addr(cpu, &insn), cpu->xmm[insn.src_reg].u64[0], 8);
+            }
+            break;
+        }
+
+        case X64_OP_UCOMISS:
+        case X64_OP_COMISS: {
+            float a = cpu->xmm[insn.dst_reg].f32[0];
+            float b = (insn.src_kind == X64_ARG_REG) ? cpu->xmm[insn.src_reg].f32[0] : *(const float *)(uintptr_t)resolve_mem_addr(cpu, &insn);
+            cpu->rflags &= ~(RFLAGS_ZF | RFLAGS_PF | RFLAGS_CF);
+            if (a == b) cpu->rflags |= RFLAGS_ZF;
+            else if (a < b) cpu->rflags |= RFLAGS_CF;
+            break;
+        }
+
+        case X64_OP_UCOMISD:
+        case X64_OP_COMISD: {
+            double a = cpu->xmm[insn.dst_reg].f64[0];
+            double b = (insn.src_kind == X64_ARG_REG) ? cpu->xmm[insn.src_reg].f64[0] : *(const double *)(uintptr_t)resolve_mem_addr(cpu, &insn);
+            cpu->rflags &= ~(RFLAGS_ZF | RFLAGS_PF | RFLAGS_CF);
+            if (a == b) cpu->rflags |= RFLAGS_ZF;
+            else if (a < b) cpu->rflags |= RFLAGS_CF;
+            break;
+        }
+
+        case X64_OP_CVTSI2SS: {
+            uint64_t val = (insn.src_kind == X64_ARG_REG) ? cpu->regs[insn.src_reg] : read_mem(resolve_mem_addr(cpu, &insn), size);
+            if (size == 4) cpu->xmm[insn.dst_reg].f32[0] = (float)(int32_t)val;
+            else cpu->xmm[insn.dst_reg].f32[0] = (float)(int64_t)val;
+            break;
+        }
+
+        case X64_OP_CVTSI2SD: {
+            uint64_t val = (insn.src_kind == X64_ARG_REG) ? cpu->regs[insn.src_reg] : read_mem(resolve_mem_addr(cpu, &insn), size);
+            if (size == 4) cpu->xmm[insn.dst_reg].f64[0] = (double)(int32_t)val;
+            else cpu->xmm[insn.dst_reg].f64[0] = (double)(int64_t)val;
+            break;
+        }
+
+        case X64_OP_CVTTSS2SI: {
+            float val = (insn.src_kind == X64_ARG_REG) ? cpu->xmm[insn.src_reg].f32[0] : *(const float *)(uintptr_t)resolve_mem_addr(cpu, &insn);
+            if (size == 4) cpu->regs[insn.dst_reg] = (uint32_t)(int32_t)val;
+            else cpu->regs[insn.dst_reg] = (uint64_t)(int64_t)val;
+            break;
+        }
+
+        case X64_OP_CVTTSD2SI: {
+            double val = (insn.src_kind == X64_ARG_REG) ? cpu->xmm[insn.src_reg].f64[0] : *(const double *)(uintptr_t)resolve_mem_addr(cpu, &insn);
+            if (size == 4) cpu->regs[insn.dst_reg] = (uint32_t)(int32_t)val;
+            else cpu->regs[insn.dst_reg] = (uint64_t)(int64_t)val;
+            break;
+        }
+
+        case X64_OP_CMPXCHG: {
+            uint64_t rax_val = cpu->regs[X64_REG_RAX] & mask_by_size(size);
+            uint64_t src_val = cpu->regs[insn.src_reg] & mask_by_size(size);
+            if (insn.dst_kind == X64_ARG_MEM) {
+                uintptr_t ptr = (uintptr_t)resolve_mem_addr(cpu, &insn);
+                if (size == 8) {
+                    uint64_t expected = rax_val;
+                    if (__atomic_compare_exchange_n((uint64_t *)ptr, &expected, src_val, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
+                        cpu->rflags |= RFLAGS_ZF;
+                    } else {
+                        cpu->rflags &= ~RFLAGS_ZF;
+                        cpu->regs[X64_REG_RAX] = expected;
+                    }
+                } else if (size == 4) {
+                    uint32_t expected = (uint32_t)rax_val;
+                    if (__atomic_compare_exchange_n((uint32_t *)ptr, &expected, (uint32_t)src_val, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
+                        cpu->rflags |= RFLAGS_ZF;
+                    } else {
+                        cpu->rflags &= ~RFLAGS_ZF;
+                        cpu->regs[X64_REG_RAX] = expected;
+                    }
+                }
+            } else {
+                uint64_t cur = cpu->regs[insn.dst_reg] & mask_by_size(size);
+                if (cur == rax_val) {
+                    cpu->rflags |= RFLAGS_ZF;
+                    cpu->regs[insn.dst_reg] = src_val;
+                } else {
+                    cpu->rflags &= ~RFLAGS_ZF;
+                    cpu->regs[X64_REG_RAX] = cur;
+                }
+            }
+            break;
+        }
+
+        case X64_OP_XADD: {
+            uint64_t src_val = cpu->regs[insn.src_reg] & mask_by_size(size);
+            if (insn.dst_kind == X64_ARG_MEM) {
+                uintptr_t ptr = (uintptr_t)resolve_mem_addr(cpu, &insn);
+                if (size == 8) {
+                    uint64_t old = __atomic_fetch_add((uint64_t *)ptr, src_val, __ATOMIC_SEQ_CST);
+                    cpu->regs[insn.src_reg] = old;
+                } else if (size == 4) {
+                    uint32_t old = __atomic_fetch_add((uint32_t *)ptr, (uint32_t)src_val, __ATOMIC_SEQ_CST);
+                    cpu->regs[insn.src_reg] = old;
+                }
+            } else {
+                uint64_t dst_val = cpu->regs[insn.dst_reg] & mask_by_size(size);
+                cpu->regs[insn.dst_reg] = (dst_val + src_val) & mask_by_size(size);
+                cpu->regs[insn.src_reg] = dst_val;
+            }
+            break;
+        }
+
+        case X64_OP_XCHG: {
+            uint64_t src_val = cpu->regs[insn.src_reg] & mask_by_size(size);
+            if (insn.dst_kind == X64_ARG_MEM) {
+                uintptr_t ptr = (uintptr_t)resolve_mem_addr(cpu, &insn);
+                if (size == 8) {
+                    uint64_t old = __atomic_exchange_n((uint64_t *)ptr, src_val, __ATOMIC_SEQ_CST);
+                    cpu->regs[insn.src_reg] = old;
+                } else if (size == 4) {
+                    uint32_t old = __atomic_exchange_n((uint32_t *)ptr, (uint32_t)src_val, __ATOMIC_SEQ_CST);
+                    cpu->regs[insn.src_reg] = old;
+                }
+            } else {
+                uint64_t tmp = cpu->regs[insn.dst_reg];
+                cpu->regs[insn.dst_reg] = cpu->regs[insn.src_reg];
+                cpu->regs[insn.src_reg] = tmp;
+            }
+            break;
+        }
+
+        case X64_OP_MFENCE:
+            __atomic_thread_fence(__ATOMIC_SEQ_CST);
+            break;
+
+        case X64_OP_LFENCE:
+            __atomic_thread_fence(__ATOMIC_ACQUIRE);
+            break;
+
+        case X64_OP_SFENCE:
+            __atomic_thread_fence(__ATOMIC_RELEASE);
+            break;
+
+        case X64_OP_PAUSE:
+            sched_yield();
+            break;
 
         case X64_OP_SYSCALL:
             cpu->status = X64_STATUS_SYSCALL;
@@ -837,6 +1298,105 @@ int arm64_jit_compile_block(x64_block_t *block) {
     block->host_code = (uint8_t *)code;
     block->host_size = written;
     return 1;
+}
+
+size_t arm64_emit_dmb_ish(uint8_t *buf) {
+    if (!buf) return 4;
+    // dmb ish
+    uint32_t insn = 0xD5033BBF;
+    memcpy(buf, &insn, 4);
+    return 4;
+}
+
+size_t arm64_emit_fadd_s(uint8_t *buf, uint8_t dst_reg, uint8_t src1, uint8_t src2) {
+    if (!buf) return 4;
+    // fadd s
+    uint32_t insn = 0x1E202800 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst_reg & 0x1F);
+    memcpy(buf, &insn, 4);
+    return 4;
+}
+
+size_t arm64_emit_fsub_s(uint8_t *buf, uint8_t dst_reg, uint8_t src1, uint8_t src2) {
+    if (!buf) return 4;
+    // fsub s
+    uint32_t insn = 0x1E203800 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst_reg & 0x1F);
+    memcpy(buf, &insn, 4);
+    return 4;
+}
+
+size_t arm64_emit_fmul_s(uint8_t *buf, uint8_t dst_reg, uint8_t src1, uint8_t src2) {
+    if (!buf) return 4;
+    // fmul s
+    uint32_t insn = 0x1E200800 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst_reg & 0x1F);
+    memcpy(buf, &insn, 4);
+    return 4;
+}
+
+size_t arm64_emit_fdiv_s(uint8_t *buf, uint8_t dst_reg, uint8_t src1, uint8_t src2) {
+    if (!buf) return 4;
+    // fdiv s
+    uint32_t insn = 0x1E201800 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst_reg & 0x1F);
+    memcpy(buf, &insn, 4);
+    return 4;
+}
+
+size_t arm64_emit_fadd_d(uint8_t *buf, uint8_t dst_reg, uint8_t src1, uint8_t src2) {
+    if (!buf) return 4;
+    // fadd d
+    uint32_t insn = 0x1E602800 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst_reg & 0x1F);
+    memcpy(buf, &insn, 4);
+    return 4;
+}
+
+size_t arm64_emit_fsub_d(uint8_t *buf, uint8_t dst_reg, uint8_t src1, uint8_t src2) {
+    if (!buf) return 4;
+    // fsub d
+    uint32_t insn = 0x1E603800 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst_reg & 0x1F);
+    memcpy(buf, &insn, 4);
+    return 4;
+}
+
+size_t arm64_emit_fmul_d(uint8_t *buf, uint8_t dst_reg, uint8_t src1, uint8_t src2) {
+    if (!buf) return 4;
+    // fmul d
+    uint32_t insn = 0x1E600800 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst_reg & 0x1F);
+    memcpy(buf, &insn, 4);
+    return 4;
+}
+
+size_t arm64_emit_fdiv_d(uint8_t *buf, uint8_t dst_reg, uint8_t src1, uint8_t src2) {
+    if (!buf) return 4;
+    // fdiv d
+    uint32_t insn = 0x1E601800 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst_reg & 0x1F);
+    memcpy(buf, &insn, 4);
+    return 4;
+}
+
+static _Thread_local x64_cpu_t *g_current_cpu = NULL;
+
+x64_cpu_t *x64_cpu_create(uint64_t entry, uint64_t stack_size) {
+    if (!stack_size) stack_size = 2 * 1024 * 1024;
+    x64_cpu_t *cpu = calloc(1, sizeof(*cpu));
+    if (!cpu) return NULL;
+    uint8_t *stack = malloc(stack_size);
+    if (!stack) { free(cpu); return NULL; }
+    x64_cpu_init(cpu, entry, (uint64_t)(uintptr_t)(stack + stack_size - 64));
+    cpu->user_data = stack;
+    return cpu;
+}
+
+void x64_cpu_destroy(x64_cpu_t *cpu) {
+    if (!cpu) return;
+    if (cpu->user_data) free(cpu->user_data);
+    free(cpu);
+}
+
+x64_cpu_t *x64_current_cpu(void) {
+    return g_current_cpu;
+}
+
+void x64_set_current_cpu(x64_cpu_t *cpu) {
+    g_current_cpu = cpu;
 }
 
 void runtime_translator_report(void) {

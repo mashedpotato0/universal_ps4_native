@@ -176,12 +176,109 @@ static void test_arm64_emitter(void) {
     puts("pass: arm64 machine code emitter primitives");
 }
 
+static void test_sse_vectors(void) {
+    uint8_t code[128];
+    size_t pos = 0;
+
+    // xorps xmm0, xmm0 (0F 57 C0)
+    uint8_t c1[] = {0x0F, 0x57, 0xC0};
+    memcpy(code + pos, c1, sizeof(c1)); pos += sizeof(c1);
+
+    // syscall
+    uint8_t c2[] = {0x0F, 0x05};
+    memcpy(code + pos, c2, sizeof(c2)); pos += sizeof(c2);
+
+    x64_cpu_t cpu;
+    uint8_t stack[4096];
+    x64_cpu_init(&cpu, (uint64_t)(uintptr_t)code, (uint64_t)(uintptr_t)(stack + sizeof(stack) - 64));
+    cpu.xmm[0].u64[0] = 0xAAAAAAAAAAAAAAAAULL;
+    cpu.xmm[0].u64[1] = 0x5555555555555555ULL;
+
+    int ran = x64_run(&cpu, 10);
+    assert(ran == 2);
+    assert(cpu.xmm[0].u64[0] == 0);
+    assert(cpu.xmm[0].u64[1] == 0);
+    assert(cpu.status == X64_STATUS_SYSCALL);
+
+    // test float addition: addss
+    pos = 0;
+    // addss xmm0, xmm1 (F3 0F 58 C1)
+    uint8_t c3[] = {0xF3, 0x0F, 0x58, 0xC1};
+    memcpy(code + pos, c3, sizeof(c3)); pos += sizeof(c3);
+    memcpy(code + pos, c2, sizeof(c2)); pos += sizeof(c2);
+
+    x64_cpu_init(&cpu, (uint64_t)(uintptr_t)code, (uint64_t)(uintptr_t)(stack + sizeof(stack) - 64));
+    cpu.xmm[0].f32[0] = 3.5f;
+    cpu.xmm[1].f32[0] = 2.5f;
+
+    ran = x64_run(&cpu, 10);
+    assert(ran == 2);
+    assert(cpu.xmm[0].f32[0] == 6.0f);
+
+    puts("pass: sse vector ops and floating point arithmetic");
+}
+
+static void test_atomics_and_barriers(void) {
+    uint8_t code[128];
+    size_t pos = 0;
+
+    // mfence (0F AE F0)
+    uint8_t c1[] = {0x0F, 0xAE, 0xF0};
+    memcpy(code + pos, c1, sizeof(c1)); pos += sizeof(c1);
+
+    // syscall
+    uint8_t c2[] = {0x0F, 0x05};
+    memcpy(code + pos, c2, sizeof(c2)); pos += sizeof(c2);
+
+    x64_cpu_t cpu;
+    uint8_t stack[4096];
+    x64_cpu_init(&cpu, (uint64_t)(uintptr_t)code, (uint64_t)(uintptr_t)(stack + sizeof(stack) - 64));
+
+    int ran = x64_run(&cpu, 10);
+    assert(ran == 2);
+    assert(cpu.status == X64_STATUS_SYSCALL);
+
+    // cmpxchg test: mov rax 10, mov rbx 20, cmpxchg rcx rbx (48 0F B1 D9)
+    pos = 0;
+    uint8_t c3[] = {0x48, 0x0F, 0xB1, 0xD9};
+    memcpy(code + pos, c3, sizeof(c3)); pos += sizeof(c3);
+    memcpy(code + pos, c2, sizeof(c2)); pos += sizeof(c2);
+
+    x64_cpu_init(&cpu, (uint64_t)(uintptr_t)code, (uint64_t)(uintptr_t)(stack + sizeof(stack) - 64));
+    cpu.regs[X64_REG_RAX] = 10;
+    cpu.regs[X64_REG_RCX] = 10;
+    cpu.regs[X64_REG_RBX] = 20;
+
+    ran = x64_run(&cpu, 10);
+    assert(ran == 2);
+    assert(cpu.regs[X64_REG_RCX] == 20); // swapped successfully
+    assert((cpu.rflags & 0x40) != 0);    // ZF set
+
+    puts("pass: atomic operations and memory ordering fences");
+}
+
+static void test_thread_cpu(void) {
+    x64_cpu_t *cpu = x64_cpu_create(0x1000, 64 * 1024);
+    assert(cpu);
+    assert(cpu->rip == 0x1000);
+    x64_set_current_cpu(cpu);
+    assert(x64_current_cpu() == cpu);
+    x64_cpu_destroy(cpu);
+    x64_set_current_cpu(NULL);
+    assert(x64_current_cpu() == NULL);
+
+    puts("pass: thread cpu context management");
+}
+
 int main(void) {
     test_decoder();
     test_interpreter_execution();
     test_branches();
     test_cache();
     test_arm64_emitter();
+    test_sse_vectors();
+    test_atomics_and_barriers();
+    test_thread_cpu();
     puts("all translator tests passed");
     return 0;
 }

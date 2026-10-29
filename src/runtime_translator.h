@@ -64,7 +64,46 @@ typedef enum {
     X64_OP_JMP,
     X64_OP_JCC,
     X64_OP_SYSCALL,
-    X64_OP_UD2
+    X64_OP_UD2,
+
+    // sse sse2 sse4 avx vector and float
+    X64_OP_MOVAPS,
+    X64_OP_MOVUPS,
+    X64_OP_MOVSS,
+    X64_OP_MOVSD,
+    X64_OP_ADDPS,
+    X64_OP_ADDSS,
+    X64_OP_ADDSD,
+    X64_OP_SUBPS,
+    X64_OP_SUBSS,
+    X64_OP_SUBSD,
+    X64_OP_MULPS,
+    X64_OP_MULSS,
+    X64_OP_MULSD,
+    X64_OP_DIVPS,
+    X64_OP_DIVSS,
+    X64_OP_DIVSD,
+    X64_OP_XORPS,
+    X64_OP_ANDPS,
+    X64_OP_ORPS,
+    X64_OP_PXOR,
+    X64_OP_UCOMISS,
+    X64_OP_UCOMISD,
+    X64_OP_COMISS,
+    X64_OP_COMISD,
+    X64_OP_CVTSI2SS,
+    X64_OP_CVTSI2SD,
+    X64_OP_CVTTSS2SI,
+    X64_OP_CVTTSD2SI,
+
+    // atomic and memory ordering
+    X64_OP_CMPXCHG,
+    X64_OP_XADD,
+    X64_OP_XCHG,
+    X64_OP_MFENCE,
+    X64_OP_LFENCE,
+    X64_OP_SFENCE,
+    X64_OP_PAUSE
 } x64_op_t;
 
 typedef enum {
@@ -114,6 +153,8 @@ typedef struct {
     uint8_t is_rip_rel;
     uint8_t has_index;
     uint8_t segment_override;
+    uint8_t has_lock;
+    uint8_t is_vec;
 } x64_insn_t;
 
 typedef union {
@@ -171,7 +212,21 @@ size_t arm64_emit_add_imm(uint8_t *buf, uint8_t dst_reg, uint8_t src_reg, uint16
 size_t arm64_emit_sub_imm(uint8_t *buf, uint8_t dst_reg, uint8_t src_reg, uint16_t imm);
 size_t arm64_emit_ret(uint8_t *buf);
 size_t arm64_emit_nop(uint8_t *buf);
+size_t arm64_emit_dmb_ish(uint8_t *buf);
+size_t arm64_emit_fadd_s(uint8_t *buf, uint8_t dst_reg, uint8_t src1, uint8_t src2);
+size_t arm64_emit_fsub_s(uint8_t *buf, uint8_t dst_reg, uint8_t src1, uint8_t src2);
+size_t arm64_emit_fmul_s(uint8_t *buf, uint8_t dst_reg, uint8_t src1, uint8_t src2);
+size_t arm64_emit_fdiv_s(uint8_t *buf, uint8_t dst_reg, uint8_t src1, uint8_t src2);
+size_t arm64_emit_fadd_d(uint8_t *buf, uint8_t dst_reg, uint8_t src1, uint8_t src2);
+size_t arm64_emit_fsub_d(uint8_t *buf, uint8_t dst_reg, uint8_t src1, uint8_t src2);
+size_t arm64_emit_fmul_d(uint8_t *buf, uint8_t dst_reg, uint8_t src1, uint8_t src2);
+size_t arm64_emit_fdiv_d(uint8_t *buf, uint8_t dst_reg, uint8_t src1, uint8_t src2);
 int arm64_jit_compile_block(x64_block_t *block);
+
+x64_cpu_t *x64_cpu_create(uint64_t entry, uint64_t stack_size);
+void x64_cpu_destroy(x64_cpu_t *cpu);
+x64_cpu_t *x64_current_cpu(void);
+void x64_set_current_cpu(x64_cpu_t *cpu);
 
 void runtime_translator_report(void);
 
