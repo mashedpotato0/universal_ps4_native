@@ -82,6 +82,7 @@ void runtime_report(void) {
     runtime_pad_report();
     runtime_savedata_report();
     runtime_file_report();
+    runtime_translator_report();
     printf("Runtime: memory operations=%zu\n", (size_t)memory_calls);
 }
 static ABI void init_env(void) {
