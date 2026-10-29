@@ -6,7 +6,7 @@ build/
 *.so
 *.bin
 *.elf
-
+*.apk
 # game data and extractions
 user/
 extracted/
